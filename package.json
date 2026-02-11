@@ -1,0 +1,19 @@
+{
+  "name": "sense-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run services:up && npm run build:contracts && npm run dev:apps",
+    "dev:apps": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "services:up": "docker compose up -d",
+    "services:down": "docker compose down",
+    "build:contracts": "npm run build -w packages/contracts"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
