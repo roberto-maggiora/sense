@@ -12,8 +12,9 @@ model Client {
   name      String
   created_at DateTime @default(now())
 
-  sites     Site[]
-  devices   Device[]
+  sites            Site[]
+  devices          Device[]
+  telemetry_events TelemetryEvent[]
 
   @@map("clients")
 }
@@ -58,6 +59,26 @@ model Device {
   site           Site?     @relation(fields: [site_id], references: [id])
   area           Area?     @relation(fields: [area_id], references: [id])
 
+  telemetry_events TelemetryEvent[]
+
   @@unique([source, external_id])
   @@map("devices")
+}
+
+model TelemetryEvent {
+  id              String   @id @default(uuid())
+  client_id       String
+  device_id       String
+  schema_version  String
+  source          String
+  occurred_at     DateTime
+  received_at     DateTime
+  idempotency_key String   @unique
+  payload         Json
+  created_at      DateTime @default(now())
+
+  client          Client   @relation(fields: [client_id], references: [id])
+  device          Device   @relation(fields: [device_id], references: [id])
+
+  @@map("telemetry_events")
 }

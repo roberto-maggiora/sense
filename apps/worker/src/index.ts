@@ -1,47 +1,68 @@
 import Redis from 'ioredis';
-import { CONTRACT_VERSION, TelemetryEventV1 } from '@sense/contracts';
-
-// Compile-time check for TelemetryEventV1
-type _TestTelemetryV1 = TelemetryEventV1;
-
+import { Worker, Job } from 'bullmq';
+import { prisma } from '@sense/database';
+import { CONTRACT_VERSION, TELEMETRY_V1_SCHEMA_VERSION, TelemetryEventV1 } from '@sense/contracts';
 
 console.log(`Worker started. Contracts version: ${CONTRACT_VERSION}`);
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
-const connectRedis = async () => {
-    const redis = new Redis(redisUrl, {
-        retryStrategy(times) {
-            const delay = Math.min(times * 50, 2000);
-            console.log(`Retrying Redis connection in ${delay}ms...`);
-            return delay;
-        },
-        lazyConnect: true // waiting for manual connect to catch error
-    });
+// Reuse Redis connection for BullMQ
+const connection = new Redis(redisUrl, {
+    maxRetriesPerRequest: null
+});
 
-    redis.on('error', (err) => {
-        // Suppress unhandled error logs from ioredis default handler to avoid noise if we are handling it
-        // console.error('Redis error event:', err.message);
-    });
+const WORKER_QUEUE_NAME = 'telemetry_ingest_v1';
 
-    try {
-        await redis.connect();
-        console.log('Connected to Redis!');
+const worker = new Worker<TelemetryEventV1>(WORKER_QUEUE_NAME, async (job: Job<TelemetryEventV1>) => {
+    const event = job.data;
+    console.log(`[${WORKER_QUEUE_NAME}] job=${job.id} idempotency_key=${event.idempotency_key} status=started`);
 
-        // Ping loop
-        setInterval(async () => {
-            try {
-                const res = await redis.ping();
-                console.log(`Redis PING: ${res}`);
-            } catch (err) {
-                console.error('Redis PING failed:', err);
-            }
-        }, 5000);
-
-    } catch (err) {
-        console.error('Failed to connect to Redis, retrying in 5s...', err);
-        setTimeout(connectRedis, 5000);
+    // 1. Validate Schema Version
+    if (event.schema_version !== TELEMETRY_V1_SCHEMA_VERSION) {
+        console.error(`[${WORKER_QUEUE_NAME}] job=${job.id} status=rejected_schema_version schema_version=${event.schema_version}`);
+        // Optionally throw to retry, or just fail permanently. For now, fail permanently (Unrecoverable).
+        throw new Error(`Invalid schema version: ${event.schema_version}`);
     }
-};
 
-connectRedis();
+    // 2. Insert into DB
+    try {
+        await prisma.telemetryEvent.create({
+            data: {
+                client_id: event.tenant.client_id,
+                device_id: event.device.id || 'unknown',
+                schema_version: event.schema_version,
+                source: event.source,
+                occurred_at: new Date(event.occurred_at),
+                received_at: new Date(event.received_at),
+                idempotency_key: event.idempotency_key,
+                payload: event as any // Store full JSON
+            }
+        });
+        console.log(`[${WORKER_QUEUE_NAME}] job=${job.id} idempotency_key=${event.idempotency_key} status=persisted`);
+    } catch (e: any) {
+        if (e.code === 'P2002') {
+            console.warn(`[${WORKER_QUEUE_NAME}] job=${job.id} idempotency_key=${event.idempotency_key} status=deduped`);
+            return;
+        }
+        throw e;
+    }
+
+}, {
+    connection,
+    concurrency: 5,
+    limiter: {
+        max: 1000,
+        duration: 1000
+    }
+});
+
+worker.on('completed', (job) => {
+    console.log(`[Job ${job.id}] Completed`);
+});
+
+worker.on('failed', (job, err) => {
+    console.error(`[Job ${job?.id}] Failed: ${err.message}`);
+});
+
+console.log(`Worker listening on queue: ${WORKER_QUEUE_NAME}`);

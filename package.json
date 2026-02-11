@@ -12,6 +12,8 @@
     "services:up": "docker compose up -d",
     "services:down": "docker compose down",
     "build:contracts": "npm run build -w packages/contracts",
+    "worker:dev": "npm run dev -w apps/worker",
+    "enqueue:test": "ts-node apps/api/src/scripts/enqueue-test.ts",
     "db:generate": "npm run db:generate -w packages/database",
     "db:migrate": "npx prisma migrate dev --schema packages/database/prisma/schema.prisma",
     "db:seed": "npm run db:seed -w packages/database",

@@ -10,8 +10,10 @@
     "dependencies": {
         "@sense/contracts": "*",
         "@sense/database": "*",
+        "bullmq": "^5.68.0",
         "dotenv": "^16.4.5",
-        "fastify": "^5.7.4"
+        "fastify": "^5.7.4",
+        "ioredis": "^5.9.2"
     },
     "devDependencies": {
         "@types/node": "^20.0.0",
