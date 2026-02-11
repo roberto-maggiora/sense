@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id        String   @id @default(uuid())
+  name      String
+  created_at DateTime @default(now())
+
+  sites     Site[]
+  devices   Device[]
+
+  @@map("clients")
+}
+
+model Site {
+  id        String   @id @default(uuid())
+  client_id String
+  name      String
+  created_at DateTime @default(now())
+
+  client    Client   @relation(fields: [client_id], references: [id])
+  areas     Area[]
+  devices   Device[]
+
+  @@map("sites")
+}
+
+model Area {
+  id        String   @id @default(uuid())
+  site_id   String
+  name      String
+  created_at DateTime @default(now())
+
+  site      Site     @relation(fields: [site_id], references: [id])
+  devices   Device[]
+
+  @@map("areas")
+}
+
+model Device {
+  id             String    @id @default(uuid())
+  client_id      String
+  site_id        String?
+  area_id        String?
+  source         String
+  external_id    String
+  name           String
+  disabled_at    DateTime?
+  created_at     DateTime  @default(now())
+
+  client         Client    @relation(fields: [client_id], references: [id])
+  site           Site?     @relation(fields: [site_id], references: [id])
+  area           Area?     @relation(fields: [area_id], references: [id])
+
+  @@unique([source, external_id])
+  @@map("devices")
+}

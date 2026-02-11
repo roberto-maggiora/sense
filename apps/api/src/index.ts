@@ -17,10 +17,15 @@ fastify.get('/api/v1/health', async (request, reply) => {
     return { ok: true };
 });
 
+import deviceRoutes from './routes/devices';
+
 const start = async () => {
     try {
         console.log(`Starting API... shared contract version: ${CONTRACT_VERSION}`);
         console.log(HELLO_MESSAGE);
+
+        fastify.register(deviceRoutes, { prefix: '/api/v1' });
+
         await fastify.listen({ port: Number(process.env.PORT) || 3000, host: '0.0.0.0' });
     } catch (err) {
         fastify.log.error(err);

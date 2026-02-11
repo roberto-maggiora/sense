@@ -9,6 +9,7 @@
     },
     "dependencies": {
         "@sense/contracts": "*",
+        "@sense/database": "*",
         "dotenv": "^16.4.5",
         "fastify": "^5.7.4"
     },

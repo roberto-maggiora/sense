@@ -11,7 +11,11 @@
     "build": "npm run build --workspaces --if-present",
     "services:up": "docker compose up -d",
     "services:down": "docker compose down",
-    "build:contracts": "npm run build -w packages/contracts"
+    "build:contracts": "npm run build -w packages/contracts",
+    "db:generate": "npm run db:generate -w packages/database",
+    "db:migrate": "npx prisma migrate dev --schema packages/database/prisma/schema.prisma",
+    "db:seed": "npm run db:seed -w packages/database",
+    "db:studio": "npx prisma studio --schema packages/database/prisma/schema.prisma"
   },
   "engines": {
     "node": ">=20"
