@@ -1,5 +1,9 @@
 import Fastify from 'fastify';
-import { CONTRACT_VERSION, HELLO_MESSAGE } from '@sense/contracts';
+import { CONTRACT_VERSION, HELLO_MESSAGE, TelemetryEventV1 } from '@sense/contracts';
+
+// Compile-time check for TelemetryEventV1
+type _TestTelemetryV1 = TelemetryEventV1;
+
 
 const fastify = Fastify({
     logger: true

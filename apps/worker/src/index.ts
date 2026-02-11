@@ -1,5 +1,9 @@
 import Redis from 'ioredis';
-import { CONTRACT_VERSION } from '@sense/contracts';
+import { CONTRACT_VERSION, TelemetryEventV1 } from '@sense/contracts';
+
+// Compile-time check for TelemetryEventV1
+type _TestTelemetryV1 = TelemetryEventV1;
+
 
 console.log(`Worker started. Contracts version: ${CONTRACT_VERSION}`);
 
