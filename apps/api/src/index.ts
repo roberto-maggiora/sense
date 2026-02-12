@@ -18,6 +18,7 @@ fastify.get('/api/v1/health', async (request, reply) => {
 });
 
 import deviceRoutes from './routes/devices';
+import ingestMilesightRoutes from './routes/ingest-milesight';
 
 const start = async () => {
     try {
@@ -25,6 +26,7 @@ const start = async () => {
         console.log(HELLO_MESSAGE);
 
         fastify.register(deviceRoutes, { prefix: '/api/v1' });
+        fastify.register(ingestMilesightRoutes, { prefix: '/api/v1' });
 
         await fastify.listen({ port: Number(process.env.PORT) || 3000, host: '0.0.0.0' });
     } catch (err) {

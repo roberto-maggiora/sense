@@ -24,8 +24,6 @@ export const telemetryQueue = new Queue<TelemetryEventV1>(TELEMETRY_QUEUE_NAME, 
 });
 
 export async function enqueueTelemetry(event: TelemetryEventV1) {
-    const job = await telemetryQueue.add('telemetry-event', event, {
-        jobId: event.idempotency_key // Use idempotency key as job ID to prevent double-queuing
-    });
+    const job = await telemetryQueue.add('telemetry-event', event);
     return job.id;
 }
