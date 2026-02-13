@@ -16,6 +16,7 @@ model Client {
   devices          Device[]
   telemetry_events TelemetryEvent[]
   alert_rules      AlertRule[]
+  device_status    DeviceStatus[]
 
   @@map("clients")
 }
@@ -61,6 +62,7 @@ model Device {
   area           Area?     @relation(fields: [area_id], references: [id])
 
   telemetry_events TelemetryEvent[]
+  device_status    DeviceStatus?
 
   @@unique([source, external_id])
   @@map("devices")
@@ -121,3 +123,25 @@ model AlertRule {
   @@index([client_id, scope_type, scope_id])
   @@map("alert_rules")
 }
+
+enum DeviceStatusLevel {
+  green
+  amber
+  red
+}
+
+model DeviceStatus {
+  id        String            @id @default(uuid())
+  client_id String
+  device_id String            @unique
+  status    DeviceStatusLevel
+  reason    Json?
+  updated_at DateTime         @updatedAt
+
+  client Client @relation(fields: [client_id], references: [id])
+  device Device @relation(fields: [device_id], references: [id])
+
+  @@index([client_id, status])
+  @@map("device_status")
+}
+
