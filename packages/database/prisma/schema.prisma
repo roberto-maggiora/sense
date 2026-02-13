@@ -81,4 +81,5 @@ model TelemetryEvent {
   device          Device   @relation(fields: [device_id], references: [id])
 
   @@map("telemetry_events")
+  @@index([device_id, occurred_at])
 }
