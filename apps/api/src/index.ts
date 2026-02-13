@@ -22,6 +22,7 @@ import deviceRoutes from './routes/devices';
 import ingestMilesightRoutes from './routes/ingest-milesight';
 import internalStatsRoutes from './routes/internal-stats';
 import telemetryReadRoutes from './routes/telemetry-read';
+import alertRulesRoutes from './routes/alert-rules';
 
 const start = async () => {
     try {
@@ -32,6 +33,7 @@ const start = async () => {
         fastify.register(ingestMilesightRoutes, { prefix: '/api/v1' });
         fastify.register(internalStatsRoutes, { prefix: '/api/v1' });
         fastify.register(telemetryReadRoutes, { prefix: '/api/v1' });
+        fastify.register(alertRulesRoutes, { prefix: '/api/v1' });
 
         await fastify.listen({ port: Number(process.env.PORT) || 3000, host: '0.0.0.0' });
     } catch (err) {

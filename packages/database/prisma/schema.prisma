@@ -15,6 +15,7 @@ model Client {
   sites            Site[]
   devices          Device[]
   telemetry_events TelemetryEvent[]
+  alert_rules      AlertRule[]
 
   @@map("clients")
 }
@@ -80,6 +81,43 @@ model TelemetryEvent {
   client          Client   @relation(fields: [client_id], references: [id])
   device          Device   @relation(fields: [device_id], references: [id])
 
+
   @@map("telemetry_events")
   @@index([device_id, occurred_at])
+}
+
+enum ScopeType {
+  device
+  area
+  site
+}
+
+enum Operator {
+  gt
+  gte
+  lt
+  lte
+}
+
+model AlertRule {
+  id                      String    @id @default(uuid())
+  client_id               String
+  scope_type              ScopeType
+  scope_id                String
+  parameter               String
+  operator                Operator
+  threshold               Float
+  unit                    String?
+  breach_duration_seconds Int
+  expected_sample_seconds Int       @default(300)
+  max_gap_seconds         Int       @default(900)
+  enabled                 Boolean   @default(true)
+  recipients              Json?
+  created_at              DateTime  @default(now())
+
+  client Client @relation(fields: [client_id], references: [id])
+
+  @@index([client_id])
+  @@index([client_id, scope_type, scope_id])
+  @@map("alert_rules")
 }
