@@ -1,0 +1,22 @@
+
+> api@1.0.0 dev
+> DOTENV_CONFIG_PATH=../../.env ts-node -r dotenv/config src/index.ts
+
+Starting API... shared contract version: 0.0.1
+Hello from shared contracts!
+{"level":30,"time":1771015079957,"pid":73631,"hostname":"MacBookAir.Home","msg":"Server listening at http://127.0.0.1:3000"}
+{"level":30,"time":1771015079958,"pid":73631,"hostname":"MacBookAir.Home","msg":"Server listening at http://192.168.0.54:3000"}
+{"level":30,"time":1771015080032,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-1","req":{"method":"GET","url":"/api/v1/dashboard/devices?limit=10","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":52269},"msg":"incoming request"}
+{"level":30,"time":1771015080074,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-1","res":{"statusCode":200},"responseTime":41.46845805644989,"msg":"request completed"}
+{"level":30,"time":1771015080083,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-2","req":{"method":"GET","url":"/api/v1/dashboard/devices?limit=10&status=red","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":52272},"msg":"incoming request"}
+{"level":30,"time":1771015080085,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-2","res":{"statusCode":200},"responseTime":2.113874912261963,"msg":"request completed"}
+{"level":30,"time":1771015096465,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-3","req":{"method":"GET","url":"/api/v1/dashboard/devices?limit=10","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":52292},"msg":"incoming request"}
+{"level":30,"time":1771015096483,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-3","res":{"statusCode":200},"responseTime":17.25129199028015,"msg":"request completed"}
+{"level":30,"time":1771015096492,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-4","req":{"method":"GET","url":"/api/v1/dashboard/devices?limit=10&status=red","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":52294},"msg":"incoming request"}
+{"level":30,"time":1771015096499,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-4","res":{"statusCode":200},"responseTime":7.74666702747345,"msg":"request completed"}
+{"level":30,"time":1771015164800,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-5","req":{"method":"GET","url":"/api/v1/dashboard/devices?limit=10","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":52314},"msg":"incoming request"}
+{"level":30,"time":1771015164807,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-5","res":{"statusCode":200},"responseTime":6.002041935920715,"msg":"request completed"}
+{"level":30,"time":1771015164815,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-6","req":{"method":"GET","url":"/api/v1/dashboard/devices?limit=10&status=red","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":52316},"msg":"incoming request"}
+{"level":30,"time":1771015164817,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-6","res":{"statusCode":200},"responseTime":2.1078330278396606,"msg":"request completed"}
+{"level":30,"time":1771015222044,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-7","req":{"method":"GET","url":"/api/v1/dashboard/devices","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":52327},"msg":"incoming request"}
+{"level":30,"time":1771015222064,"pid":73631,"hostname":"MacBookAir.Home","reqId":"req-7","res":{"statusCode":200},"responseTime":20.02666699886322,"msg":"request completed"}
