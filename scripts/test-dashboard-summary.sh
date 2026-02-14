@@ -13,41 +13,55 @@ echo "$RESPONSE" | jq .
 # Seeded: 
 # 1. Red (Active, Online)
 # 2. Amber (Active, Online)
-# 3. Green (Active, Online)
-# 4. Green (Active, Offline - old data)
-# 5. Grey (Active, Online)
-# Total active: 5
-
-# Status Counts:
+# Validating Counts
+# Logic Changes in Issue 14:
+# - Offline takes precedence.
+# - Seed Data:
+#   1. Red (Active, Recent) -> Red
+#   2. Amber (Active, Recent) -> Amber
+#   3. Green (Active, Recent) -> Green
+#   4. Offline (Active, Green, Old Data) -> Offline (Was Green before)
+#   5. Grey (Active, Null Status, Recent) -> Not in buckets (Total 5)
+# Expected:
+# Total: 5
 # Red: 1
 # Amber: 1
-# Green: 2 (Both device 3 and 4 have 'green' status in DB)
-# Offline: 1 (Device 4 has old telemetry)
+# Green: 1 (Previously 2)
+# Offline: 1
 
-# Assertions
-echo -e "\n3. Validating Counts..."
 EXPECTED_TOTAL=5
 EXPECTED_RED=1
 EXPECTED_AMBER=1
-EXPECTED_GREEN=2
+EXPECTED_GREEN=1
 EXPECTED_OFFLINE=1
 
-JSON_TOTAL=$(echo "$RESPONSE" | jq '.total_devices')
-JSON_RED=$(echo "$RESPONSE" | jq '.red')
-JSON_AMBER=$(echo "$RESPONSE" | jq '.amber')
-JSON_GREEN=$(echo "$RESPONSE" | jq '.green')
-JSON_OFFLINE=$(echo "$RESPONSE" | jq '.offline')
+echo -e "\n3. Validating Counts..."
+FAIL=0
 
-if [ "$JSON_TOTAL" -eq "$EXPECTED_TOTAL" ] && \
-   [ "$JSON_RED" -eq "$EXPECTED_RED" ] && \
-   [ "$JSON_AMBER" -eq "$EXPECTED_AMBER" ] && \
-   [ "$JSON_GREEN" -eq "$EXPECTED_GREEN" ] && \
-   [ "$JSON_OFFLINE" -eq "$EXPECTED_OFFLINE" ]; then
-   echo "SUCCESS: All counts match expected values."
-   exit 0
+check_count() {
+    local key=$1
+    local expected=$2
+    local actual=$(echo "$RESPONSE" | jq ".$key")
+    if [ "$actual" != "$expected" ]; then
+        echo "MISMATCH: $key - Expected: $expected, Got: $actual"
+        FAIL=1
+    fi
+}
+
+check_count "total_devices" $EXPECTED_TOTAL
+check_count "red" $EXPECTED_RED
+check_count "amber" $EXPECTED_AMBER
+check_count "green" $EXPECTED_GREEN
+check_count "offline" $EXPECTED_OFFLINE
+
+if [ $FAIL -eq 0 ]; then
+    echo "SUCCESS: All counts match expected values."
+    # Verify Math: Total might be > sum(buckets) due to 'grey', but buckets must equal specified logic
+    SUM=$((EXPECTED_RED + EXPECTED_AMBER + EXPECTED_GREEN + EXPECTED_OFFLINE))
+    echo "Info: Bucket Sum = $SUM (Grey/Unknown devices accounting for gap of $((EXPECTED_TOTAL - SUM)))"
 else
-   echo "FAILURE: Counts mismatch."
-   echo "Expected: Total=$EXPECTED_TOTAL Red=$EXPECTED_RED Amber=$EXPECTED_AMBER Green=$EXPECTED_GREEN Offline=$EXPECTED_OFFLINE"
-   echo "Got:      Total=$JSON_TOTAL Red=$JSON_RED Amber=$JSON_AMBER Green=$JSON_GREEN Offline=$JSON_OFFLINE"
-   exit 1
+    echo "FAILURE: Counts mismatch."
+    echo "Expected: Total=$EXPECTED_TOTAL Red=$EXPECTED_RED Amber=$EXPECTED_AMBER Green=$EXPECTED_GREEN Offline=$EXPECTED_OFFLINE"
+    echo "Got:      $(echo "$RESPONSE" | jq -c '{total: .total_devices, red: .red, amber: .amber, green: .green, offline: .offline}')"
+    exit 1
 fi

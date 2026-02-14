@@ -9,74 +9,47 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
         }
 
         try {
-            // Parallelize all count queries for efficiency
-            const activeDeviceWhere = { client_id: clientId, disabled_at: null };
+            // Single efficient query to calculate all counts with offline precedence
+            const sql = `
+                SELECT
+                    COUNT(*)::int as total_devices,
+                    SUM(CASE WHEN effective_status = 'red' THEN 1 ELSE 0 END)::int as red,
+                    SUM(CASE WHEN effective_status = 'amber' THEN 1 ELSE 0 END)::int as amber,
+                    SUM(CASE WHEN effective_status = 'green' THEN 1 ELSE 0 END)::int as green,
+                    SUM(CASE WHEN effective_status = 'offline' THEN 1 ELSE 0 END)::int as offline,
+                    MAX(last_seen) as last_telemetry_at
+                FROM (
+                    SELECT
+                        d.id,
+                        t.occurred_at as last_seen,
+                        CASE
+                            WHEN t.occurred_at < NOW() - INTERVAL '30 minutes' OR t.occurred_at IS NULL THEN 'offline'
+                            ELSE s.status::text
+                        END as effective_status
+                    FROM "devices" d
+                    LEFT JOIN "device_status" s ON d.id = s.device_id
+                    LEFT JOIN LATERAL (
+                        SELECT occurred_at
+                        FROM "telemetry_events"
+                        WHERE device_id = d.id
+                        ORDER BY occurred_at DESC
+                        LIMIT 1
+                    ) t ON true
+                    WHERE d.client_id = $1 AND d.disabled_at IS NULL
+                ) as derived
+            `;
 
-            const [
-                totalDevices,
-                statusCounts,
-                offlineCount,
-                lastTelemetry
-            ] = await Promise.all([
-                // 1. Total active devices
-                prisma.device.count({ where: activeDeviceWhere }),
-
-                // 2. Counts by Status
-                prisma.deviceStatus.groupBy({
-                    by: ['status'],
-                    where: {
-                        client_id: clientId,
-                        device: { disabled_at: null } // Ensure device is active
-                    },
-                    _count: true
-                }),
-
-                // 3. Offline: active devices with NO telemetry in last 30 mins
-                // "no telemetry in last 30 mins OR no telemetry ever"
-                // Implemented as: active devices where telemetry_events has NONE with occurred_at > 30 mins ago
-                prisma.device.count({
-                    where: {
-                        ...activeDeviceWhere,
-                        telemetry_events: {
-                            none: {
-                                occurred_at: {
-                                    gte: new Date(Date.now() - 30 * 60 * 1000)
-                                }
-                            }
-                        }
-                    }
-                }),
-
-                // 4. Last Telemetry timestamp
-                prisma.telemetryEvent.findFirst({
-                    where: { client_id: clientId },
-                    orderBy: { occurred_at: 'desc' },
-                    select: { occurred_at: true }
-                })
-            ]);
-
-            // Transform statusCounts array to map
-            const counts = {
-                red: 0,
-                amber: 0,
-                green: 0
-            };
-
-            statusCounts.forEach(group => {
-                const s = group.status as keyof typeof counts;
-                if (counts[s] !== undefined) {
-                    counts[s] = group._count;
-                }
-            });
+            const rawResults = await prisma.$queryRawUnsafe<any[]>(sql, clientId);
+            const row = rawResults[0];
 
             return {
-                total_devices: totalDevices,
-                red: counts.red,
-                amber: counts.amber,
-                green: counts.green,
-                offline: offlineCount,
+                total_devices: row.total_devices || 0,
+                red: row.red || 0,
+                amber: row.amber || 0,
+                green: row.green || 0,
+                offline: row.offline || 0,
                 open_alerts: 0, // Stub for Issue 14
-                last_telemetry_at: lastTelemetry?.occurred_at || null
+                last_telemetry_at: row.last_telemetry_at || null
             };
 
         } catch (error) {

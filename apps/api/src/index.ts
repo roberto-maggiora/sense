@@ -31,6 +31,13 @@ const start = async () => {
         console.log(`Starting API... shared contract version: ${CONTRACT_VERSION}`);
         console.log(HELLO_MESSAGE);
 
+        await fastify.register(import('@fastify/cors'), {
+            origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+            methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'X-Client-Id', 'X-Ingest-Key', 'Authorization'],
+            credentials: true
+        });
+
         fastify.register(deviceRoutes, { prefix: '/api/v1' });
         fastify.register(ingestMilesightRoutes, { prefix: '/api/v1' });
         fastify.register(internalStatsRoutes, { prefix: '/api/v1' });
