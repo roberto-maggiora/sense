@@ -2,6 +2,89 @@ import { FastifyInstance } from 'fastify';
 import { prisma } from '@sense/database';
 
 export default async function dashboardRoutes(fastify: FastifyInstance) {
+    fastify.get('/summary', async (request, reply) => {
+        const clientId = request.headers['x-client-id'] as string;
+        if (!clientId) {
+            return reply.code(400).send({ error: 'Missing X-Client-Id header' });
+        }
+
+        try {
+            // Parallelize all count queries for efficiency
+            const activeDeviceWhere = { client_id: clientId, disabled_at: null };
+
+            const [
+                totalDevices,
+                statusCounts,
+                offlineCount,
+                lastTelemetry
+            ] = await Promise.all([
+                // 1. Total active devices
+                prisma.device.count({ where: activeDeviceWhere }),
+
+                // 2. Counts by Status
+                prisma.deviceStatus.groupBy({
+                    by: ['status'],
+                    where: {
+                        client_id: clientId,
+                        device: { disabled_at: null } // Ensure device is active
+                    },
+                    _count: true
+                }),
+
+                // 3. Offline: active devices with NO telemetry in last 30 mins
+                // "no telemetry in last 30 mins OR no telemetry ever"
+                // Implemented as: active devices where telemetry_events has NONE with occurred_at > 30 mins ago
+                prisma.device.count({
+                    where: {
+                        ...activeDeviceWhere,
+                        telemetry_events: {
+                            none: {
+                                occurred_at: {
+                                    gte: new Date(Date.now() - 30 * 60 * 1000)
+                                }
+                            }
+                        }
+                    }
+                }),
+
+                // 4. Last Telemetry timestamp
+                prisma.telemetryEvent.findFirst({
+                    where: { client_id: clientId },
+                    orderBy: { occurred_at: 'desc' },
+                    select: { occurred_at: true }
+                })
+            ]);
+
+            // Transform statusCounts array to map
+            const counts = {
+                red: 0,
+                amber: 0,
+                green: 0
+            };
+
+            statusCounts.forEach(group => {
+                const s = group.status as keyof typeof counts;
+                if (counts[s] !== undefined) {
+                    counts[s] = group._count;
+                }
+            });
+
+            return {
+                total_devices: totalDevices,
+                red: counts.red,
+                amber: counts.amber,
+                green: counts.green,
+                offline: offlineCount,
+                open_alerts: 0, // Stub for Issue 14
+                last_telemetry_at: lastTelemetry?.occurred_at || null
+            };
+
+        } catch (error) {
+            request.log.error(error, 'Error fetching dashboard summary');
+            return reply.code(500).send({ error: 'Internal Server Error' });
+        }
+    });
+
     fastify.get('/devices', async (request, reply) => {
         const clientId = request.headers['x-client-id'] as string;
         if (!clientId) {
@@ -26,9 +109,13 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
         let paramIdx = 2;
 
         if (statusFilter) {
-            whereClause += ` AND s.status::text = $${paramIdx}`;
-            params.push(statusFilter);
-            paramIdx++;
+            if (statusFilter === 'offline') {
+                whereClause += ` AND (t.occurred_at < NOW() - INTERVAL '30 minutes' OR t.occurred_at IS NULL)`;
+            } else {
+                whereClause += ` AND s.status::text = $${paramIdx}`;
+                params.push(statusFilter);
+                paramIdx++;
+            }
         }
 
         if (siteId) {
@@ -76,26 +163,49 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
             const rawResults = await prisma.$queryRawUnsafe(sql, ...params);
 
             // Map results to cleaner JSON structure
-            const results = (rawResults as any[]).map(row => ({
-                id: row.id,
-                client_id: row.client_id,
-                site_id: row.site_id,
-                area_id: row.area_id,
-                source: row.source,
-                external_id: row.external_id,
-                name: row.name,
-                disabled_at: row.disabled_at,
-                created_at: row.created_at,
-                current_status: row.status ? {
-                    status: row.status,
-                    reason: row.reason,
-                    updated_at: row.status_updated_at
-                } : null,
-                latest_telemetry: row.last_telemetry ? {
-                    occurred_at: row.last_telemetry_at,
-                    payload: row.last_telemetry
-                } : null
-            }));
+            const results = (rawResults as any[]).map(row => {
+                const isOffline =
+                    !row.last_telemetry_at ||
+                    new Date(row.last_telemetry_at).getTime() <
+                    Date.now() - 30 * 60 * 1000;
+
+                return {
+                    id: row.id,
+                    client_id: row.client_id,
+                    site_id: row.site_id,
+                    area_id: row.area_id,
+                    source: row.source,
+                    external_id: row.external_id,
+                    name: row.name,
+                    disabled_at: row.disabled_at,
+                    created_at: row.created_at,
+
+                    current_status: isOffline
+                        ? {
+                            status: 'offline',
+                            reason: null,
+                            updated_at: row.status_updated_at
+                        }
+                        : row.status
+                            ? {
+                                status: row.status,
+                                reason: row.reason,
+                                updated_at: row.status_updated_at
+                            }
+                            : null,
+
+                    latest_telemetry: row.last_telemetry ? {
+                        occurred_at: row.last_telemetry_at,
+                        payload: row.last_telemetry
+                    } : null,
+
+                    metrics: {
+                        temperature: row.last_telemetry?.temperature ?? null,
+                        humidity: row.last_telemetry?.humidity ?? null
+                    }
+                };
+            });
+
 
             return reply.send({ data: results });
         } catch (error) {
