@@ -9,28 +9,17 @@ interface ReadTelemetryQuery {
 }
 
 export default async function telemetryReadRoutes(fastify: FastifyInstance) {
-    // Shared hook for client validation
-    fastify.addHook('preHandler', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        if (!clientId) {
-            reply.code(400).send({ error: 'Missing X-Client-Id header' });
-            return;
-        }
+    // GET /devices/:id/latest
+    fastify.get<{ Params: { id: string } }>('/devices/:id/latest', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
+        const { id } = request.params;
 
-        const client = await prisma.client.findUnique({
-            where: { id: clientId }
-        });
-
+        // Ensure client exists (manual check like before)
+        const client = await prisma.client.findUnique({ where: { id: clientId } });
         if (!client) {
             reply.code(404).send({ error: 'Client not found' });
             return;
         }
-    });
-
-    // GET /devices/:id/latest
-    fastify.get<{ Params: { id: string } }>('/devices/:id/latest', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        const { id } = request.params;
 
         // Ensure device belongs to client
         const device = await prisma.device.findFirst({
@@ -80,10 +69,17 @@ export default async function telemetryReadRoutes(fastify: FastifyInstance) {
     });
 
     // GET /devices/:id/telemetry
-    fastify.get<{ Params: { id: string }; Querystring: ReadTelemetryQuery }>('/devices/:id/telemetry', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.get<{ Params: { id: string }; Querystring: ReadTelemetryQuery }>('/devices/:id/telemetry', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { id } = request.params;
         const { from, to, limit = 200 } = request.query;
+
+        // Ensure client exists (manual check like before)
+        const client = await prisma.client.findUnique({ where: { id: clientId } });
+        if (!client) {
+            reply.code(404).send({ error: 'Client not found' });
+            return;
+        }
 
         // Validate limit
         const take = Math.min(Math.max(Number(limit), 1), 2000);

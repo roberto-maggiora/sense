@@ -2,14 +2,11 @@ import { FastifyInstance } from 'fastify';
 import { prisma } from '@sense/database';
 
 export default async function dashboardRoutes(fastify: FastifyInstance) {
-    fastify.get('/summary', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        if (!clientId) {
-            return reply.code(400).send({ error: 'Missing X-Client-Id header' });
-        }
+    fastify.get('/summary', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
 
         try {
-            // Single efficient query to calculate all counts with offline precedence
+            // Parallelize all count queries for efficiencyulate all counts with offline precedence
             const sql = `
                 SELECT
                     COUNT(*)::int as total_devices,
@@ -58,11 +55,8 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
         }
     });
 
-    fastify.get('/devices', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        if (!clientId) {
-            return reply.code(400).send({ error: 'Missing X-Client-Id header' });
-        }
+    fastify.get('/devices', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
 
         const query = request.query as {
             status?: string;

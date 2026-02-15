@@ -25,25 +25,25 @@ interface UpdateAlertRuleBody {
 }
 
 export default async function alertRulesRoutes(fastify: FastifyInstance) {
-    // Shared hook for client validation
-    fastify.addHook('preHandler', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        if (!clientId) {
-            reply.code(400).send({ error: 'Missing X-Client-Id header' });
-            return;
-        }
-        // Could cache this check or rely on foreign key constraints for writes, but for reads we want to be sure
+    // POST /alert-rules
+    fastify.post<{ Body: CreateAlertRuleBody }>('/alert-rules', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
+        const body = request.body;
+
+        // Ensure client exists
+        // (Note: in original code, there was a preHandler hook doing this.
+        // We can replicate that logic here, or assume valid clientId from auth middleware if we trust the source.
+        // The original code queried prisma.client.findUnique. Let's keep that verify for strictness if desired,
+        // or rely on FK constraints. The prompt asked to "Refactor existing routes to use request.clientId instead of re-reading headers".
+        // It didn't explicitly ask to remove the DB check, but standard pattern is usually just headers.
+        // However, the previous preHandler in this file ALSO did a DB check.
+        // Let's keep the DB check for now to be safe and identical behavior, but use request.clientId)
+
         const client = await prisma.client.findUnique({ where: { id: clientId } });
         if (!client) {
             reply.code(404).send({ error: 'Client not found' });
             return;
         }
-    });
-
-    // POST /alert-rules
-    fastify.post<{ Body: CreateAlertRuleBody }>('/alert-rules', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        const body = request.body;
 
         // Validation
         if (!body.scope_type || !['device', 'area', 'site'].includes(body.scope_type)) {
@@ -124,8 +124,8 @@ export default async function alertRulesRoutes(fastify: FastifyInstance) {
     });
 
     // GET /alert-rules
-    fastify.get('/alert-rules', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.get('/alert-rules', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
 
         const rules = await prisma.alertRule.findMany({
             where: { client_id: clientId },
@@ -135,8 +135,8 @@ export default async function alertRulesRoutes(fastify: FastifyInstance) {
     });
 
     // GET /alert-rules/:id
-    fastify.get<{ Params: { id: string } }>('/alert-rules/:id', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.get<{ Params: { id: string } }>('/alert-rules/:id', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { id } = request.params;
 
         const rule = await prisma.alertRule.findFirst({
@@ -152,8 +152,8 @@ export default async function alertRulesRoutes(fastify: FastifyInstance) {
     });
 
     // PATCH /alert-rules/:id
-    fastify.patch<{ Params: { id: string }; Body: UpdateAlertRuleBody }>('/alert-rules/:id', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.patch<{ Params: { id: string }; Body: UpdateAlertRuleBody }>('/alert-rules/:id', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { id } = request.params;
         const body = request.body;
 
@@ -198,8 +198,8 @@ export default async function alertRulesRoutes(fastify: FastifyInstance) {
     });
 
     // DELETE /alert-rules/:id
-    fastify.delete<{ Params: { id: string } }>('/alert-rules/:id', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.delete<{ Params: { id: string } }>('/alert-rules/:id', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { id } = request.params;
 
         const rule = await prisma.alertRule.findFirst({

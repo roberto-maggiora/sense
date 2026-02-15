@@ -23,7 +23,7 @@ export function evaluateRule(rule: AlertRule, events: TelemetryEvent[]): Evaluat
         const payload = e.payload as any;
         // Check both top-level and metrics array for now, consistent with ingestion
         // But for status engine, let's assume ingestion normalized it or we look at raw if needed.
-        // Simplified: check payload[parameter] or payload.metrics find param
+        // Simplified: check payload[parameter] or payload-metrics find param
         if (payload[rule.parameter] !== undefined) return true;
         if (Array.isArray(payload.metrics)) {
             return payload.metrics.some((m: any) => m.parameter === rule.parameter);
@@ -37,6 +37,8 @@ export function evaluateRule(rule: AlertRule, events: TelemetryEvent[]): Evaluat
 
     const latest = relevantEvents[0];
     const latestValue = getValue(latest, rule.parameter);
+
+    console.log(`[EVAL] Rule=${rule.id} Val=${latestValue} Thresh=${rule.threshold} Op=${rule.operator}`);
 
     if (latestValue === undefined) {
         return { level: 'green', reason: null };

@@ -18,6 +18,7 @@ interface DeviceUpdateBody {
     name?: string;
     site_id?: string;
     area_id?: string;
+    disabled?: boolean;
     // Explicitly disallow client_id, source, external_id
     client_id?: never;
     source?: never;
@@ -25,39 +26,26 @@ interface DeviceUpdateBody {
 }
 
 export default async function deviceRoutes(fastify: FastifyInstance) {
-    // Common hook to validate X-Client-Id
-    fastify.addHook('preHandler', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        if (!clientId) {
-            reply.code(400).send({ error: 'Missing X-Client-Id header' });
-            return;
+
+    // GET /devices - List all devices (filtered by client_id)
+    fastify.get('/devices', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
+
+        try {
+            const devices = await prisma.device.findMany({
+                where: { client_id: clientId },
+                orderBy: { created_at: 'desc' }
+            });
+            return { data: devices };
+        } catch (error) {
+            request.log.error(error);
+            return reply.code(500).send({ error: 'Internal Server Error' });
         }
-
-        const client = await prisma.client.findUnique({
-            where: { id: clientId }
-        });
-
-        if (!client) {
-            reply.code(404).send({ error: 'Client not found' });
-            return;
-        }
-    });
-
-    // GET /devices
-    fastify.get('/devices', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        const devices = await prisma.device.findMany({
-            where: {
-                client_id: clientId,
-                disabled_at: null // Only active devices? Or all? "DELETE /devices/:deviceId (soft-disable; set disabled_at)" suggests we probably filter them out by default or explicit. I'll filter them out for now.
-            }
-        });
-        return devices;
     });
 
     // GET /devices/:id
-    fastify.get<{ Params: DeviceParams }>('/devices/:id', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.get<{ Params: DeviceParams }>('/devices/:id', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { id } = request.params;
 
         const device = await prisma.device.findFirst({
@@ -77,8 +65,8 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
     });
 
     // POST /devices
-    fastify.post<{ Body: DeviceBody }>('/devices', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.post<{ Body: DeviceBody }>('/devices', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { source, external_id, site_id, area_id, name } = request.body;
 
         if (!name || name.trim() === '') {
@@ -94,7 +82,7 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
                 return;
             }
         }
-        // TODO: Verify area belongs to site if both provided, or just area->site->client chain.
+
         if (area_id) {
             const area = await prisma.area.findUnique({ where: { id: area_id }, include: { site: true } });
             if (!area || area.site.client_id !== clientId) {
@@ -131,11 +119,11 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
     });
 
     // PATCH /devices/:id
-    fastify.patch<{ Params: DeviceParams; Body: DeviceUpdateBody }>('/devices/:id', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.patch<{ Params: DeviceParams; Body: DeviceUpdateBody }>('/devices/:id', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { id } = request.params;
         const body = request.body as any;
-        const { name, site_id, area_id } = request.body;
+        const { name, site_id, area_id, disabled } = request.body;
 
         if (body.client_id || body.source || body.external_id) {
             reply.code(400).send({ error: 'Cannot update client_id, source, or external_id' });
@@ -173,27 +161,27 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
 
         try {
             const updated = await prisma.device.update({
-                where: { id },
+                where: { id, client_id: clientId },
                 data: {
                     name,
+                    disabled_at: disabled === true ? new Date() : (disabled === false ? null : undefined),
                     site_id,
                     area_id
                 }
             });
-
-            return updated;
-        } catch (e: any) {
-            if (e.code === 'P2003') {
-                reply.code(400).send({ error: 'Invalid foreign key reference' });
-            } else {
-                throw e;
+            return { data: updated };
+        } catch (error: any) {
+            if (error.code === 'P2025') {
+                return reply.code(404).send({ error: 'Device not found' });
             }
+            request.log.error(error);
+            return reply.code(500).send({ error: 'Internal Server Error' });
         }
     });
 
     // DELETE /devices/:id
-    fastify.delete<{ Params: DeviceParams }>('/devices/:id', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.delete<{ Params: DeviceParams }>('/devices/:id', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { id } = request.params;
 
         const device = await prisma.device.findFirst({

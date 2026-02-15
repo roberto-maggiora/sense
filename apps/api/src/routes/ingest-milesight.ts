@@ -164,9 +164,13 @@ function extractMetrics(body: any): MetricV1[] {
     const findValue = (keys: string[]): number | undefined => {
         for (const key of keys) {
             let val = body[key];
-            // Sometimes it's nested like params
+            // Check params
             if (val === undefined && body.params) {
                 val = body.params[key];
+            }
+            // Check data (Milesight often uses 'data')
+            if (val === undefined && body.data) {
+                val = body.data[key];
             }
 
             if (val !== undefined && typeof val === 'number') {

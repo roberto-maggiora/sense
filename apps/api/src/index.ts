@@ -26,6 +26,8 @@ import alertRulesRoutes from './routes/alert-rules';
 import deviceStatusRoutes from './routes/device-status';
 import dashboardRoutes from './routes/dashboard';
 
+import authPlugin from './plugins/auth';
+
 const start = async () => {
     try {
         console.log(`Starting API... shared contract version: ${CONTRACT_VERSION}`);
@@ -37,6 +39,8 @@ const start = async () => {
             allowedHeaders: ['Content-Type', 'X-Client-Id', 'X-Ingest-Key', 'Authorization'],
             credentials: true
         });
+
+        await fastify.register(authPlugin);
 
         fastify.register(deviceRoutes, { prefix: '/api/v1' });
         fastify.register(ingestMilesightRoutes, { prefix: '/api/v1' });
