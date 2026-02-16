@@ -136,11 +136,20 @@ ingest_temp 60
 # Now duration > 5s. Should be RED. 1st Notification.
 check_notifs 1
 
-# D. Repeat Notification (Wait 6s > 5s repeat interval)
-echo "5. Waiting 6s for repeat notification..."
-sleep 6
+# D. Intermediate Check (Wait 2s, Total 8s since breach start, 2s since last notif)
+# Repeat interval is 5s. Should NOT notify yet.
+echo "5. Waiting 2s (Total 8s)..."
+sleep 2
 ingest_temp 60
-# Elapsed since last notif > 5s. Should send 2nd Notification.
+# Still 1 notification.
+check_notifs 1
+
+# E. Repeat Notification (Wait 4s more, Total 12s, 6s since last notif)
+# Now > 5s since last notif. Should notify.
+echo "6. Waiting 4s (Total 12s)..."
+sleep 4
+ingest_temp 60
+# Should send 2nd Notification.
 check_notifs 2
 
 # E. Green Point (20). Clears status.

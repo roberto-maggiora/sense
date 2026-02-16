@@ -153,6 +153,9 @@ model NotificationOutbox {
   rule_id     String?
   message     String
   created_at  DateTime @default(now())
+  acknowledged_at DateTime?
+  acknowledged_by String?
+  ack_consumed    Boolean   @default(false)
 
   @@index([client_id])
   @@map("notifications_outbox")

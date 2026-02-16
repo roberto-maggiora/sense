@@ -26,6 +26,7 @@ import alertRulesRoutes from './routes/alert-rules';
 import deviceStatusRoutes from './routes/device-status';
 import dashboardRoutes from './routes/dashboard';
 import alertsHistoryRoutes from './routes/alerts-history';
+import alertsAcknowledgeRoutes from './routes/alerts-acknowledge';
 
 import authPlugin from './plugins/auth';
 
@@ -50,6 +51,7 @@ const start = async () => {
         fastify.register(alertRulesRoutes, { prefix: '/api/v1' });
         fastify.register(deviceStatusRoutes, { prefix: '/api/v1' });
         fastify.register(alertsHistoryRoutes, { prefix: '/api/v1' });
+        fastify.register(alertsAcknowledgeRoutes, { prefix: '/api/v1' });
         fastify.register(dashboardRoutes, { prefix: '/api/v1/dashboard' }); // Note prefix includes /dashboard
 
         await fastify.listen({ port: Number(process.env.PORT) || 3000, host: '0.0.0.0' });

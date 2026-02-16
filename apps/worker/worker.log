@@ -1,0 +1,95 @@
+
+> worker@1.0.0 dev
+> DOTENV_CONFIG_PATH=../../.env ts-node -r dotenv/config src/index.ts
+
+Worker started. Contracts version: 0.0.1
+Worker listening on queue: telemetry_ingest_v1
+[telemetry_ingest_v1] job=179 idempotency_key=milesight:ext_1771173633:02087b75a44dcf899871befe3277d9e78bc7733e5ea8721a9992e2bac1eb5b47 status=started
+[telemetry_ingest_v1] job=179 idempotency_key=milesight:ext_1771173633:02087b75a44dcf899871befe3277d9e78bc7733e5ea8721a9992e2bac1eb5b47 status=persisted
+[EVAL] Rule=70e03698-5967-473b-8dc6-2dc03927e005 Val=20 Thresh=50 Op=gt
+[telemetry_ingest_v1] device=6f434573-ef4e-40e7-9ef5-6f3d6e5dbd2a status_updated=green
+[Job 179] Completed
+[telemetry_ingest_v1] job=187 idempotency_key=milesight:ext_1771174894:70bcb603e2620fd764ecfb87e380e3b20410f7ed07041d73ad1efedd8f56a2b6 status=started
+[telemetry_ingest_v1] job=187 idempotency_key=milesight:ext_1771174894:70bcb603e2620fd764ecfb87e380e3b20410f7ed07041d73ad1efedd8f56a2b6 status=persisted
+[EVAL] Rule=fb8448fb-b737-4d3a-870f-a8a89b51eb49 Val=20 Thresh=50 Op=gt
+[telemetry_ingest_v1] device=89755b21-a192-4a29-9ab4-4f092d4dfa28 status_updated=green
+[Job 187] Completed
+[telemetry_ingest_v1] job=197 idempotency_key=milesight:ext_1771175311:4b2cbfbd2fc4422014d0d2378611ac58229071f3f1b1365ac3f87b59b6189409 status=started
+[telemetry_ingest_v1] job=197 idempotency_key=milesight:ext_1771175311:4b2cbfbd2fc4422014d0d2378611ac58229071f3f1b1365ac3f87b59b6189409 status=persisted
+[EVAL] Rule=9b9a2bb7-4220-462f-8306-0180484016fe Val=60 Thresh=50 Op=gt
+[NOTIFICATION] Sending alert for device=6bdeaa16-ecee-4c48-a94c-3249ce8331e7 rule=9b9a2bb7-4220-462f-8306-0180484016fe
+[NOTIFICATION_PAYLOAD] {"event":"ALERT_RED","client_id":"9aacf726-553a-48cd-be1c-197759ef2c51","device_id":"6bdeaa16-ecee-4c48-a94c-3249ce8331e7","device_name":"Notification Test Device","rule_summary":{"ruleId":"9b9a2bb7-4220-462f-8306-0180484016fe","parameter":"temperature","threshold":50,"operator":"gt","value":60,"duration":18,"since":"2026-02-15T17:08:36.000Z","last_notified_at":"2026-02-15T17:08:54.325Z"},"since":"2026-02-15T17:08:36.000Z","value":60,"duration_seconds":18,"link":"http://localhost:5173/device/6bdeaa16-ecee-4c48-a94c-3249ce8331e7","timestamp":"2026-02-15T17:08:54.331Z"}
+[telemetry_ingest_v1] device=6bdeaa16-ecee-4c48-a94c-3249ce8331e7 status_updated=red
+[WORKER] RED status. Notify? true. Last: 2026-02-15T17:08:54.325Z
+[Job 197] Completed
+:f79450b5c140ce4bcf244317a216be97c3009dcd7f51a31a09ffd00da483ceb7 status=started
+[telemetry_ingest_v1] job=189 idempotency_key=milesight:ext_1771174894:f79450b5c140ce4bcf244317a216be97c3009dcd7f51a31a09ffd00da483ceb7 status=persisted
+[EVAL] Rule=fb8448fb-b737-4d3a-870f-a8a89b51eb49 Val=60 Thresh=50 Op=gt
+[NOTIFICATION] Sending alert for device=89755b21-a192-4a29-9ab4-4f092d4dfa28 rule=fb8448fb-b737-4d3a-870f-a8a89b51eb49
+[NOTIFICATION_PAYLOAD] {"event":"ALERT_RED","client_id":"656d470a-8b3e-4260-a806-469fc212ea66","device_id":"89755b21-a192-4a29-9ab4-4f092d4dfa28","device_name":"Notification Test Device","rule_summary":{"ruleId":"fb8448fb-b737-4d3a-870f-a8a89b51eb49","parameter":"temperature","threshold":50,"operator":"gt","value":60,"duration":9,"since":"2026-02-15T17:01:38.000Z","last_notified_at":"2026-02-15T17:01:47.276Z"},"since":"2026-02-15T17:01:38.000Z","value":60,"duration_seconds":9,"link":"http://localhost:5173/device/89755b21-a192-4a29-9ab4-4f092d4dfa28","timestamp":"2026-02-15T17:01:47.276Z"}
+[telemetry_ingest_v1] device=89755b21-a192-4a29-9ab4-4f092d4dfa28 status_updated=red
+[WORKER] RED status. Notify? true. Last: 2026-02-15T17:01:47.276Z
+[Job 189] Completed
+[telemetry_ingest_v1] job=190 idempotency_key=milesight:ext_1771174894:ed61d006780c0e7271ee9bc0f7528dea388261691678133ca5744a075d5b6d6d status=started
+[telemetry_ingest_v1] job=190 idempotency_key=milesight:ext_1771174894:ed61d006780c0e7271ee9bc0f7528dea388261691678133ca5744a075d5b6d6d status=persisted
+[EVAL] Rule=fb8448fb-b737-4d3a-870f-a8a89b51eb49 Val=60 Thresh=50 Op=gt
+[NOTIFICATION] Sending alert for device=89755b21-a192-4a29-9ab4-4f092d4dfa28 rule=fb8448fb-b737-4d3a-870f-a8a89b51eb49
+[NOTIFICATION_PAYLOAD] {"event":"ALERT_RED","client_id":"656d470a-8b3e-4260-a806-469fc212ea66","device_id":"89755b21-a192-4a29-9ab4-4f092d4dfa28","device_name":"Notification Test Device","rule_summary":{"ruleId":"fb8448fb-b737-4d3a-870f-a8a89b51eb49","parameter":"temperature","threshold":50,"operator":"gt","value":60,"duration":18,"since":"2026-02-15T17:01:38.000Z","last_notified_at":"2026-02-15T17:01:56.192Z"},"since":"2026-02-15T17:01:38.000Z","value":60,"duration_seconds":18,"link":"http://localhost:5173/device/89755b21-a192-4a29-9ab4-4f092d4dfa28","timestamp":"2026-02-15T17:01:56.198Z"}
+[telemetry_ingest_v1] device=89755b21-a192-4a29-9ab4-4f092d4dfa28 status_updated=red
+[WORKER] RED status. Notify? true. Last: 2026-02-15T17:01:56.192Z
+[Job 190] Completed
+[telemetry_ingest_v1] job=201 idempotency_key=milesight:ext_1771180837:76f6ee1c2de8a1014238ab1a28e032801217b572b203c7fab88709c7875d3117 status=started
+[telemetry_ingest_v1] job=201 idempotency_key=milesight:ext_1771180837:76f6ee1c2de8a1014238ab1a28e032801217b572b203c7fab88709c7875d3117 status=persisted
+[telemetry_ingest_v1] device=a2e680ea-84a7-4f3b-82d0-ac1ba63d4f1d status_updated=green
+[Job 201] Completed
+[telemetry_ingest_v1] job=207 idempotency_key=milesight:ext_1771181755:e5abd570f0749bd1173e73938af32c36c30f852b2d565e82f887ea69f6231d8f status=started
+[telemetry_ingest_v1] job=207 idempotency_key=milesight:ext_1771181755:e5abd570f0749bd1173e73938af32c36c30f852b2d565e82f887ea69f6231d8f status=persisted
+[EVAL] Rule=a3d18f13-8ccb-45b9-b9f3-d556d69232b6 Val=60 Thresh=50 Op=gt
+[NOTIFICATION] Sending alert for device=c34da07c-c433-41d9-8eb0-9b5fa3b7f195 rule=a3d18f13-8ccb-45b9-b9f3-d556d69232b6
+[NOTIFICATION_PAYLOAD] {"event":"ALERT_RED","client_id":"a2c5a94c-4638-4a8b-a282-9aad737e5a10","device_id":"c34da07c-c433-41d9-8eb0-9b5fa3b7f195","device_name":"Notification Test Device","rule_summary":{"ruleId":"a3d18f13-8ccb-45b9-b9f3-d556d69232b6","parameter":"temperature","threshold":50,"operator":"gt","value":60,"duration":9,"since":"2026-02-15T18:56:00.000Z","last_notified_at":"2026-02-15T18:56:09.465Z"},"since":"2026-02-15T18:56:00.000Z","value":60,"duration_seconds":9,"link":"http://localhost:5173/device/c34da07c-c433-41d9-8eb0-9b5fa3b7f195","timestamp":"2026-02-15T18:56:09.465Z"}
+[telemetry_ingest_v1] device=c34da07c-c433-41d9-8eb0-9b5fa3b7f195 status_updated=red
+[WORKER] RED status. Notify? true. Last: 2026-02-15T18:56:09.465Z
+[Job 207] Completed
+
+> worker@1.0.0 dev
+> DOTENV_CONFIG_PATH=../../.env ts-node -r dotenv/config src/index.ts
+
+Worker started. Contracts version: 0.0.1
+Worker listening on queue: telemetry_ingest_v1
+[telemetry_ingest_v1] job=209 idempotency_key=milesight:ext_1771183436:ef150e3c41ee83e6bf044c177f9cccd339cb603b40bde85ed197df191c73e2ca status=started
+[telemetry_ingest_v1] job=209 idempotency_key=milesight:ext_1771183436:ef150e3c41ee83e6bf044c177f9cccd339cb603b40bde85ed197df191c73e2ca status=persisted
+[EVAL] Rule=3718adeb-a932-446e-96ad-3ca327515c58 Val=20 Thresh=50 Op=gt
+[telemetry_ingest_v1] device=36347127-a728-4a4d-ae2b-87a6f02af031 status_updated=green
+[Job 209] Completed
+[telemetry_ingest_v1] job=211 idempotency_key=milesight:ext_1771183436:190b9c6ec9caa84ff4110741a023f0c5b7220c9c619fb6b5f04113579d4b94ca status=started
+[telemetry_ingest_v1] job=211 idempotency_key=milesight:ext_1771183436:190b9c6ec9caa84ff4110741a023f0c5b7220c9c619fb6b5f04113579d4b94ca status=persisted
+[EVAL] Rule=3718adeb-a932-446e-96ad-3ca327515c58 Val=60 Thresh=50 Op=gt
+[NOTIF_CHECK] device=36347127-a728-4a4d-ae2b-87a6f02af031 rule=3718adeb-a932-446e-96ad-3ca327515c58 status=RED now=2026-02-15T19:24:10.083Z next=2026-02-15T19:24:15.083Z notify=true
+[NOTIFICATION] Sending alert for device=36347127-a728-4a4d-ae2b-87a6f02af031 rule=3718adeb-a932-446e-96ad-3ca327515c58
+[NOTIFICATION_PAYLOAD] {"event":"ALERT_RED","client_id":"2cb272df-dc55-4f96-b7ce-2ab40792bc1c","device_id":"36347127-a728-4a4d-ae2b-87a6f02af031","device_name":"Notification Test Device","rule_summary":{"ruleId":"3718adeb-a932-446e-96ad-3ca327515c58","parameter":"temperature","threshold":50,"operator":"gt","value":60,"duration":8,"since":"2026-02-15T19:24:01.000Z","last_notified_at":"2026-02-15T19:24:10.083Z","first_notified_at":"2026-02-15T19:24:10.083Z","next_notify_at":"2026-02-15T19:24:15.083Z","repeat_interval_seconds":5},"since":"2026-02-15T19:24:01.000Z","value":60,"duration_seconds":8,"link":"http://localhost:5173/device/36347127-a728-4a4d-ae2b-87a6f02af031","timestamp":"2026-02-15T19:24:10.083Z"}
+[telemetry_ingest_v1] device=36347127-a728-4a4d-ae2b-87a6f02af031 status_updated=red
+[WORKER] RED status. Notify? true. Last: 2026-02-15T19:24:10.083Z
+[Job 211] Completed
+
+> worker@1.0.0 dev
+> DOTENV_CONFIG_PATH=../../.env ts-node -r dotenv/config src/index.ts
+
+Worker started. Contracts version: 0.0.1
+Worker listening on queue: telemetry_ingest_v1
+[telemetry_ingest_v1] job=217 idempotency_key=milesight:ext_1771183527:88a2d223b9e4e682119b1f47f98f517b3fb84900d2f4ca9a41cb49c9bc433d80 status=started
+[telemetry_ingest_v1] job=217 idempotency_key=milesight:ext_1771183527:88a2d223b9e4e682119b1f47f98f517b3fb84900d2f4ca9a41cb49c9bc433d80 status=persisted
+[NOTIFICATION] Sending alert for device=f5148d4e-dbec-49dd-8d41-c19add8942b2 rule=57f12c47-a82a-4c26-8610-663cf7ae901a
+[NOTIFICATION_PAYLOAD] {"event":"ALERT_RED","client_id":"82fdf668-6de2-4fd1-9922-3dadd5147ba1","device_id":"f5148d4e-dbec-49dd-8d41-c19add8942b2","device_name":"Notification Test Device","rule_summary":{"ruleId":"57f12c47-a82a-4c26-8610-663cf7ae901a","parameter":"temperature","threshold":50,"operator":"gt","value":60,"duration":15,"since":"2026-02-15T19:25:32.000Z","last_notified_at":"2026-02-15T19:25:47.597Z"},"since":"2026-02-15T19:25:32.000Z","value":60,"duration_seconds":15,"link":"http://localhost:5173/device/f5148d4e-dbec-49dd-8d41-c19add8942b2","timestamp":"2026-02-15T19:25:47.599Z"}
+[telemetry_ingest_v1] device=f5148d4e-dbec-49dd-8d41-c19add8942b2 status_updated=red
+[Job 217] Completed
+[telemetry_ingest_v1] job=218 idempotency_key=milesight:ext_1771183981:a1a01e2434b951288d23ad3d629499b8d380df345eb70ec37af57c8a3f5e3552 status=started
+[telemetry_ingest_v1] job=218 idempotency_key=milesight:ext_1771183981:a1a01e2434b951288d23ad3d629499b8d380df345eb70ec37af57c8a3f5e3552 status=persisted
+[EVAL] Rule=3ae3983d-216e-4dc4-8d61-e9bbcb03d23c Val=20 Thresh=50 Op=gt
+[telemetry_ingest_v1] device=78bd90d9-284f-463c-8712-2ff6be242bf9 status_updated=green
+[Job 218] Completed
+[telemetry_ingest_v1] job=221 idempotency_key=milesight:ext_1771183981:51f7e0ad65504b3e6b681b0dd218a1427eb2d0b842105e46fba1bfac83421975 status=started
+[telemetry_ingest_v1] job=221 idempotency_key=milesight:ext_1771183981:51f7e0ad65504b3e6b681b0dd218a1427eb2d0b842105e46fba1bfac83421975 status=persisted
+[NOTIFICATION] Sending alert for device=78bd90d9-284f-463c-8712-2ff6be242bf9 rule=3ae3983d-216e-4dc4-8d61-e9bbcb03d23c
+[NOTIFICATION_PAYLOAD] {"event":"ALERT_RED","client_id":"8c78e6ec-09ec-47af-9587-da42ded5401d","device_id":"78bd90d9-284f-463c-8712-2ff6be242bf9","device_name":"Notification Test Device","rule_summary":{"ruleId":"3ae3983d-216e-4dc4-8d61-e9bbcb03d23c","parameter":"temperature","threshold":50,"operator":"gt","value":60,"duration":15,"since":"2026-02-15T19:33:05.000Z","last_notified_at":"2026-02-15T19:33:20.189Z"},"since":"2026-02-15T19:33:05.000Z","value":60,"duration_seconds":15,"link":"http://localhost:5173/device/78bd90d9-284f-463c-8712-2ff6be242bf9","timestamp":"2026-02-15T19:33:20.189Z"}
+[telemetry_ingest_v1] device=78bd90d9-284f-463c-8712-2ff6be242bf9 status_updated=red
+[Job 221] Completed

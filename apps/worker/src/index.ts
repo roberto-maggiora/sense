@@ -108,39 +108,65 @@ const worker = new Worker<TelemetryEventV1>(WORKER_QUEUE_NAME, async (job: Job<T
                         const ruleId = (finalStatus.reason as any)?.ruleId;
                         const triggeringRule = rules.find(r => r.id === ruleId);
 
-                        // Default to 0 if not found (spammy, but safe) -> actually user said "X = breach_duration_seconds"
+                        // Determine Repeat Interval (default 0)
                         const repeatInterval = triggeringRule?.breach_duration_seconds || 0;
 
                         const now = new Date();
-                        const lastNotifiedStr = previousReason?.last_notified_at;
+                        const nowTime = now.getTime();
 
-                        if (!lastNotifiedStr) {
-                            // First time RED (or missing history)
+                        // State from previous execution
+                        let nextNotifyAt = previousReason?.next_notify_at ? new Date(previousReason.next_notify_at).getTime() : 0;
+                        let firstNotifiedAt = previousReason?.first_notified_at;
+
+                        // Check if this is a new Red episode (or we lost state)
+                        // If no first_notified_at or no previousReason, it's new.
+                        const isNewEpisode = !firstNotifiedAt;
+
+                        if (isNewEpisode) {
+                            // First notification for this episode
                             shouldNotify = true;
-                        } else {
-                            const lastNotifiedTime = new Date(lastNotifiedStr).getTime();
-                            const elapsedSec = (now.getTime() - lastNotifiedTime) / 1000;
+                            lastNotifiedAt = now.toISOString();
 
-                            if (elapsedSec >= repeatInterval) {
+                            // Set schedule for next time
+                            // first = now
+                            // last = now
+                            // next = now + interval
+                            firstNotifiedAt = now.toISOString();
+                            nextNotifyAt = nowTime + (repeatInterval * 1000);
+                        } else {
+                            // Existing episode. Check if due.
+                            if (nowTime >= nextNotifyAt) {
                                 shouldNotify = true;
+                                lastNotifiedAt = now.toISOString();
+
+                                // Advance schedule
+                                // next = now + interval (Reset drift to now to avoid burst if worker was down)
+                                // strict periodicity would use nextNotifyAt + interval
+                                // Implementation Plan said: next = now + interval
+                                nextNotifyAt = nowTime + (repeatInterval * 1000);
                             } else {
-                                // Keep the old timestamp so we don't reset the timer
-                                lastNotifiedAt = lastNotifiedStr;
+                                // Not due yet
+                                shouldNotify = false;
+                                lastNotifiedAt = previousReason?.last_notified_at; // Keep old
                             }
                         }
 
-                        if (shouldNotify) {
-                            lastNotifiedAt = now.toISOString();
+                        // Observability
+                        console.log(`[NOTIF_CHECK] device=${device.id} rule=${ruleId} status=RED now=${now.toISOString()} next=${new Date(nextNotifyAt).toISOString()} notify=${shouldNotify}`);
 
+                        if (shouldNotify) {
                             const reason = finalStatus.reason as any;
-                            // Add last_notified_at to payload/reason
+                            // Update reason with scheduling state
                             reason.last_notified_at = lastNotifiedAt;
+                            reason.first_notified_at = firstNotifiedAt;
+                            reason.next_notify_at = new Date(nextNotifyAt).toISOString();
+                            reason.repeat_interval_seconds = repeatInterval;
 
                             // Generate Idempotency Key
-                            // includes (device_id, rule_id, bucketedTime)
+                            // Use deterministic time-bucket avoids duplicates even if we retry quickly
                             // bucketedTime = floor(now / repeatInterval)
-                            const bucketSize = repeatInterval > 0 ? repeatInterval : 1; // avoid div by 0
-                            const bucket = Math.floor(now.getTime() / 1000 / bucketSize);
+                            const bucketSize = repeatInterval > 0 ? repeatInterval : 1;
+                            const bucket = Math.floor(nowTime / 1000 / bucketSize);
                             const idempotencyKey = `${device.id}:${ruleId}:${bucket}`;
 
                             await sendNotification({
@@ -153,8 +179,11 @@ const worker = new Worker<TelemetryEventV1>(WORKER_QUEUE_NAME, async (job: Job<T
                                 duration_seconds: reason?.duration ?? 0
                             }, idempotencyKey);
                         } else {
-                            // Update reason with old timestamp to persist it
+                            // Update reason to persist scheduling state even if not notifying
                             (finalStatus.reason as any).last_notified_at = lastNotifiedAt;
+                            (finalStatus.reason as any).first_notified_at = firstNotifiedAt;
+                            (finalStatus.reason as any).next_notify_at = new Date(nextNotifyAt).toISOString();
+                            (finalStatus.reason as any).repeat_interval_seconds = repeatInterval;
                         }
                     } else {
                         // Not RED: clear last_notified_at (implicit by not adding it to new reason)
@@ -199,7 +228,7 @@ const worker = new Worker<TelemetryEventV1>(WORKER_QUEUE_NAME, async (job: Job<T
 
 }, {
     connection,
-    concurrency: 5,
+    concurrency: 1,
     limiter: {
         max: 1000,
         duration: 1000
