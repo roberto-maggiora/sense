@@ -16,7 +16,12 @@ export async function fetchClient(path: string, options: RequestInit = {}) {
     const url = `${BASE_URL}${path}`;
     const headers = { ...DEFAULT_HEADERS, ...options.headers };
 
-    const res = await fetch(url, { ...options, headers });
+    let body = options.body;
+    if (options.method === 'POST' && !body && (headers as Record<string, string>)['Content-Type'] === 'application/json') {
+        body = '{}';
+    }
+
+    const res = await fetch(url, { ...options, headers, body });
 
     if (!res.ok) {
         throw new ApiError(`Request failed: ${res.status} ${res.statusText}`, res.status);

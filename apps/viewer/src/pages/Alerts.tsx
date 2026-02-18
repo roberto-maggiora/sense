@@ -80,7 +80,8 @@ export default function Alerts() {
 
         try {
             await fetchClient(`/api/v1/alerts/${id}/acknowledge`, {
-                method: 'POST'
+                method: 'POST',
+                body: JSON.stringify({})
             });
         } catch (e) {
             // Revert on error
@@ -139,8 +140,8 @@ export default function Alerts() {
                                 key={f}
                                 onClick={() => setFilter(f)}
                                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${filter === f
-                                        ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm"
-                                        : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                    ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm"
+                                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                                     }`}
                             >
                                 {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -200,8 +201,8 @@ export default function Alerts() {
                                     </td>
                                     <td className="p-4">
                                         <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold tracking-wide ${a.payload?.event === 'ALERT_RED'
-                                                ? 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/20'
-                                                : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/20'
+                                            ? 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/20'
+                                            : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/20'
                                             }`}>
                                             {a.payload?.event || 'Unknown'}
                                         </span>
