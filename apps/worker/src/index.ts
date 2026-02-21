@@ -3,9 +3,29 @@ import { Worker, Job } from 'bullmq';
 import { prisma, Prisma } from '@sense/database';
 import { CONTRACT_VERSION, TELEMETRY_V1_SCHEMA_VERSION, TelemetryEventV1 } from '@sense/contracts';
 import { evaluateRule, aggregateStatus } from './status/evaluate';
+import { evaluateAlarmRule } from './alarms/evaluate';
 import { sendNotification } from './notifications';
 
 console.log(`Worker started. Contracts version: ${CONTRACT_VERSION}`);
+
+// --- Health Check Server (Moved to top for debugging/reliability) ---
+import * as http from 'http';
+const HEALTH_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
+const server = http.createServer((req, res) => {
+    if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, service: 'worker' }));
+    } else {
+        res.writeHead(404);
+        res.end();
+    }
+});
+
+if (process.env.WORKER_RUN_ONCE !== '1') {
+    server.listen(HEALTH_PORT, '0.0.0.0', () => {
+        console.log(`Health server listening on port ${HEALTH_PORT}`);
+    });
+}
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -24,6 +44,32 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const WORKER_QUEUE_NAME = 'telemetry_ingest_v1';
+
+async function checkAndConsumeAck(clientId: string, deviceId: string, ruleId: string): Promise<boolean> {
+    if (!ruleId) return false;
+
+    // Find unconsumed ack
+    const ack = await prisma.notificationOutbox.findFirst({
+        where: {
+            client_id: clientId,
+            device_id: deviceId,
+            rule_id: ruleId,
+            acknowledged_at: { not: null },
+            ack_consumed: false
+        },
+        orderBy: { acknowledged_at: 'desc' }
+    });
+
+    if (ack) {
+        // Mark as consumed
+        await prisma.notificationOutbox.update({
+            where: { id: ack.id },
+            data: { ack_consumed: true }
+        });
+        return true;
+    }
+    return false;
+}
 
 const worker = new Worker<TelemetryEventV1>(WORKER_QUEUE_NAME, async (job: Job<TelemetryEventV1>) => {
     const event = job.data;
@@ -137,6 +183,15 @@ const worker = new Worker<TelemetryEventV1>(WORKER_QUEUE_NAME, async (job: Job<T
                             // Existing episode. Check if due.
                             if (nowTime >= nextNotifyAt) {
                                 shouldNotify = true;
+
+                                // Check for Snooze (Ack)
+                                // Only check if we are considering notifying
+                                const snoozed = await checkAndConsumeAck(device.client_id, device.id, ruleId);
+                                if (snoozed) {
+                                    console.log(`[ACK] Snoozed notification for device=${device.id} rule=${ruleId}`);
+                                    shouldNotify = false;
+                                }
+
                                 lastNotifiedAt = now.toISOString();
 
                                 // Advance schedule
@@ -215,6 +270,56 @@ const worker = new Worker<TelemetryEventV1>(WORKER_QUEUE_NAME, async (job: Job<T
                     }
                 }
             }
+
+            // 4. Device Alarm Rules Evaluation
+            if (device) {
+                const alarmRules = await prisma.deviceAlarmRule.findMany({
+                    where: { device_id: device.id, enabled: true }
+                });
+
+                if (alarmRules.length > 0) {
+                    const history = await prisma.telemetryEvent.findMany({
+                        where: { device_id: device.id },
+                        orderBy: { occurred_at: 'desc' },
+                        take: 300
+                    });
+
+                    for (const rule of alarmRules) {
+                        const evalResult = evaluateAlarmRule(rule, history);
+
+                        if (evalResult.isViolated) {
+                            const existingActive = await prisma.notificationOutbox.findFirst({
+                                where: { device_id: device.id, rule_id: rule.id, resolved_at: null }
+                            });
+
+                            if (!existingActive) {
+                                await prisma.notificationOutbox.create({
+                                    data: {
+                                        client_id: device.client_id,
+                                        device_id: device.id,
+                                        rule_id: rule.id,
+                                        message: `Alarm Triggered: ${rule.metric} ${rule.operator} ${rule.threshold} (Actual: ${evalResult.latestValue})`
+                                    }
+                                });
+                                console.log(`[ALARM] Triggered rule ${rule.id} for device ${device.id}`);
+                            }
+                        } else {
+                            const existingActive = await prisma.notificationOutbox.findFirst({
+                                where: { device_id: device.id, rule_id: rule.id, resolved_at: null }
+                            });
+
+                            if (existingActive) {
+                                await prisma.notificationOutbox.update({
+                                    where: { id: existingActive.id },
+                                    data: { resolved_at: new Date() }
+                                });
+                                console.log(`[ALARM] Resolved rule ${rule.id} for device ${device.id}`);
+                            }
+                        }
+                    }
+                }
+            }
+
         } catch (err: any) {
             console.error(`[${WORKER_QUEUE_NAME}] status_eval_error: ${err.message}`);
         }
@@ -243,4 +348,57 @@ worker.on('failed', (job, err) => {
     console.error(`[Job ${job?.id}] Failed: ${err.message}`);
 });
 
-console.log(`Worker listening on queue: ${WORKER_QUEUE_NAME}`);
+// Health server moved to top
+
+// --- Graceful Shutdown ---
+const shutdown = async (signal: string) => {
+    console.log(`[${signal}] Shutting down worker...`);
+
+    // 1. Close Health Server
+    server.close(() => {
+        console.log('Health server closed');
+    });
+
+    // 2. Close Worker (stops accepting new jobs, waits for current to finish)
+    await worker.close();
+    console.log('Worker closed');
+
+    // 3. Close Redis
+    await connection.quit();
+    console.log('Redis connection closed');
+
+    // 4. Disconnect Prisma
+    await prisma.$disconnect();
+    console.log('Prisma disconnected');
+
+    process.exit(0);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// WORKER_RUN_ONCE Mode for E2E Tests
+if (process.env.WORKER_RUN_ONCE === '1') {
+    import('bullmq').then(({ Queue }) => {
+        const queue = new Queue(WORKER_QUEUE_NAME, { connection });
+        let idleCycles = 0;
+
+        // Give connection and worker time to start
+        setTimeout(() => {
+            setInterval(async () => {
+                const counts = await queue.getJobCounts('wait', 'active', 'delayed', 'completed', 'failed');
+                console.log(`[Queue Monitor] wait:${counts.wait} active:${counts.active} delayed:${counts.delayed} completed:${counts.completed} failed:${counts.failed}`);
+
+                if (counts.wait === 0 && counts.active === 0 && counts.delayed === 0) {
+                    idleCycles++;
+                    if (idleCycles >= 3) {
+                        console.log('Queue empty. Exiting WORKER_RUN_ONCE mode.');
+                        await shutdown('SIGTERM');
+                    }
+                } else {
+                    idleCycles = 0;
+                }
+            }, 1000);
+        }, 2000);
+    });
+}

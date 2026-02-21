@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { getDashboardDevices } from "../lib/api";
+import { formatDeviceLocation } from "../lib/location";
 
 type Device = {
     id: string;
     name: string;
+    site_id?: string | null;
+    area_id?: string | null;
+    site?: { name: string } | null;
+    area?: { name: string } | null;
     current_status: { status: string } | null;
     latest_telemetry: { occurred_at: string } | null;
     metrics: { temperature: number | null; humidity: number | null };
@@ -17,11 +23,7 @@ export default function DevicesPage() {
     useEffect(() => {
         const fetchDevices = async () => {
             try {
-                const res = await fetch("http://127.0.0.1:3000/api/v1/dashboard/devices?limit=100", {
-                    headers: { "X-Client-Id": "test-client" },
-                });
-                if (!res.ok) throw new Error(`Devices HTTP ${res.status}`);
-                const json = await res.json();
+                const json = await getDashboardDevices({ limit: 100 });
                 setDevices(json.data || []);
             } catch (e: any) {
                 setError(e.message);
@@ -46,6 +48,7 @@ export default function DevicesPage() {
                     <thead className="bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-white/5">
                         <tr>
                             <th className="p-3">Name</th>
+                            <th className="p-3">Location</th>
                             <th className="p-3">Status</th>
                             <th className="p-3">Temp</th>
                             <th className="p-3">Humidity</th>
@@ -59,6 +62,9 @@ export default function DevicesPage() {
                                     <Link to={`/device/${d.id}`} className="hover:underline decoration-blue-500 underline-offset-4">
                                         {d.name}
                                     </Link>
+                                </td>
+                                <td className="p-3 text-slate-600 dark:text-slate-400">
+                                    {formatDeviceLocation(d)}
                                 </td>
                                 <td className="p-3">
                                     <StatusBadge status={d.current_status?.status} />

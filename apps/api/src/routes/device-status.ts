@@ -3,17 +3,9 @@ import { prisma } from '@sense/database';
 import { DeviceStatusLevel } from '@prisma/client';
 
 export default async function deviceStatusRoutes(fastify: FastifyInstance) {
-    fastify.addHook('preHandler', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
-        if (!clientId) {
-            reply.code(400).send({ error: 'Missing X-Client-Id header' });
-            return;
-        }
-    });
-
     // GET /device-status
-    fastify.get<{ Querystring: { status?: DeviceStatusLevel } }>('/device-status', async (request, reply) => {
-        const clientId = request.headers['x-client-id'] as string;
+    fastify.get<{ Querystring: { status?: DeviceStatusLevel } }>('/device-status', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
         const { status } = request.query;
 
         const whereClause: any = { client_id: clientId };

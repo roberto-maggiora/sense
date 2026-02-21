@@ -4,8 +4,26 @@ import { prisma } from '@sense/database';
 export default async function dashboardRoutes(fastify: FastifyInstance) {
     fastify.get('/summary', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
         const clientId = request.clientId as string;
+        const { site_id, area_id } = request.query as { site_id?: string; area_id?: string };
 
         try {
+            // Build WHERE clause
+            const params: any[] = [clientId];
+            let whereClause = `d.client_id = $1 AND d.disabled_at IS NULL`;
+            let paramIdx = 2;
+
+            if (site_id) {
+                whereClause += ` AND d.site_id = $${paramIdx}`;
+                params.push(site_id);
+                paramIdx++;
+            }
+
+            if (area_id) {
+                whereClause += ` AND d.area_id = $${paramIdx}`;
+                params.push(area_id);
+                paramIdx++;
+            }
+
             // Parallelize all count queries for efficiencyulate all counts with offline precedence
             const sql = `
                 SELECT
@@ -32,11 +50,11 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                         ORDER BY occurred_at DESC
                         LIMIT 1
                     ) t ON true
-                    WHERE d.client_id = $1 AND d.disabled_at IS NULL
+                    WHERE ${whereClause}
                 ) as derived
             `;
 
-            const rawResults = await prisma.$queryRawUnsafe<any[]>(sql, clientId);
+            const rawResults = await prisma.$queryRawUnsafe<any[]>(sql, ...params);
             const row = rawResults[0];
 
             return {
@@ -72,7 +90,7 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
 
         // Build WHERE clause parameters
         const params: any[] = [clientId];
-        let whereClause = `d.client_id = $1`;
+        let whereClause = `d.client_id = $1 AND d.disabled_at IS NULL`;
         let paramIdx = 2;
 
         if (statusFilter) {
@@ -104,9 +122,13 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
             SELECT 
                 d.id, d.client_id, d.site_id, d.area_id, d.source, d.external_id, d.name, d.disabled_at, d.created_at,
                 s.status, s.reason, s.updated_at as status_updated_at,
-                t.payload as last_telemetry, t.occurred_at as last_telemetry_at
+                t.payload as last_telemetry, t.occurred_at as last_telemetry_at,
+                site.name as site_name,
+                area.name as area_name
             FROM "devices" d
             LEFT JOIN "device_status" s ON d.id = s.device_id
+            LEFT JOIN "sites" site ON d.site_id = site.id
+            LEFT JOIN "areas" area ON d.area_id = area.id
             LEFT JOIN LATERAL (
                 SELECT payload, occurred_at 
                 FROM "telemetry_events"
@@ -146,6 +168,9 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                     name: row.name,
                     disabled_at: row.disabled_at,
                     created_at: row.created_at,
+
+                    site: row.site_name ? { name: row.site_name } : null,
+                    area: row.area_name ? { name: row.area_name } : null,
 
                     current_status: isOffline
                         ? {

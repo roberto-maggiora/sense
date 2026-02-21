@@ -7,16 +7,48 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Client {
-  id        String   @id @default(uuid())
-  name      String
-  created_at DateTime @default(now())
+enum Role {
+  SUPER_ADMIN
+  CLIENT_ADMIN
+  SITE_ADMIN
+  VIEWER
+}
 
+model User {
+  id            String    @id @default(uuid())
+  client_id     String?
+  site_id       String?
+  email         String    @unique
+  name          String?
+  password_hash String
+  role          Role      @default(VIEWER)
+  disabled_at   DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  client        Client?   @relation(fields: [client_id], references: [id])
+  site          Site?     @relation(fields: [site_id], references: [id])
+
+  @@index([client_id])
+  @@index([site_id])
+  @@index([disabled_at])
+  @@map("users")
+}
+
+model Client {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  disabled_at DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @default(now()) @updatedAt
+
+  users            User[]
   sites            Site[]
   devices          Device[]
-  telemetry_events TelemetryEvent[]
-  alert_rules      AlertRule[]
-  device_status    DeviceStatus[]
+  telemetry_events   TelemetryEvent[]
+  alert_rules        AlertRule[]
+  device_status      DeviceStatus[]
+  device_alarm_rules DeviceAlarmRule[]
 
   @@map("clients")
 }
@@ -25,12 +57,15 @@ model Site {
   id        String   @id @default(uuid())
   client_id String
   name      String
+  disabled_at DateTime?
   created_at DateTime @default(now())
 
   client    Client   @relation(fields: [client_id], references: [id])
   areas     Area[]
   devices   Device[]
+  users     User[]
 
+  @@unique([client_id, name])
   @@map("sites")
 }
 
@@ -38,11 +73,13 @@ model Area {
   id        String   @id @default(uuid())
   site_id   String
   name      String
+  disabled_at DateTime?
   created_at DateTime @default(now())
 
   site      Site     @relation(fields: [site_id], references: [id])
   devices   Device[]
 
+  @@unique([site_id, name])
   @@map("areas")
 }
 
@@ -51,7 +88,7 @@ model Device {
   client_id      String
   site_id        String?
   area_id        String?
-  source         String
+  source         String?
   external_id    String
   name           String
   disabled_at    DateTime?
@@ -61,10 +98,13 @@ model Device {
   site           Site?     @relation(fields: [site_id], references: [id])
   area           Area?     @relation(fields: [area_id], references: [id])
 
-  telemetry_events TelemetryEvent[]
-  device_status    DeviceStatus?
+  telemetry_events   TelemetryEvent[]
+  device_status      DeviceStatus?
+  device_alarm_rules DeviceAlarmRule[]
 
   @@unique([source, external_id])
+  @@index([site_id])
+  @@index([area_id])
   @@map("devices")
 }
 
@@ -156,7 +196,30 @@ model NotificationOutbox {
   acknowledged_at DateTime?
   acknowledged_by String?
   ack_consumed    Boolean   @default(false)
+  resolved_at     DateTime?
 
   @@index([client_id])
   @@map("notifications_outbox")
+}
+
+model DeviceAlarmRule {
+  id               String            @id @default(uuid())
+  client_id        String
+  device_id        String
+  metric           String
+  operator         Operator
+  threshold        Float
+  duration_seconds Int               @default(0)
+  severity         DeviceStatusLevel
+  enabled          Boolean           @default(true)
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
+
+  client           Client            @relation(fields: [client_id], references: [id])
+  device           Device            @relation(fields: [device_id], references: [id])
+
+  @@unique([device_id, metric, severity])
+  @@index([client_id, device_id])
+  @@index([enabled])
+  @@map("device_alarm_rules")
 }

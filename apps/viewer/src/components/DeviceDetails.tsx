@@ -1,14 +1,103 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import TemperatureHistoryCard from "./TemperatureHistoryCard";
+import { updateDevice, listSites, type Site, getDashboardDevices, fetchClient, listDeviceRules, updateDeviceRule, deleteDeviceRule, type DeviceAlarmRule } from "../lib/api";
+import { useAuth } from "../lib/auth";
+import AddRuleModal from "./AddRuleModal";
 
 type Device = {
     id: string;
     name: string;
+    site_id?: string | null;
+    area_id?: string | null;
     current_status: { status: string } | null;
     latest_telemetry: { occurred_at: string } | null;
     metrics: { temperature: number | null; humidity: number | null };
 };
+
+function LocationAssignment({ device, onAssign }: { device: Device | null, onAssign: () => void }) {
+    const [sites, setSites] = useState<Site[]>([]);
+    // areas derived from selected site (if loaded) or separate fetch?
+    // GET /sites now includes areas.
+    const [selectedSiteId, setSelectedSiteId] = useState<string>("");
+    const [selectedAreaId, setSelectedAreaId] = useState<string>("");
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (device) {
+            setSelectedSiteId(device.site_id || "");
+            setSelectedAreaId(device.area_id || "");
+        }
+        // Load sites (which now include areas)
+        listSites().then(setSites).catch(console.error);
+    }, [device]);
+
+    // Derived areas from the site list to avoid extra fetch
+    const availableAreas = sites.find(s => s.id === selectedSiteId)?.areas || [];
+
+    const handleSave = async () => {
+        if (!device) return;
+        setLoading(true);
+        try {
+            await updateDevice(device.id, {
+                site_id: selectedSiteId || null,
+                area_id: selectedAreaId || null
+            });
+            onAssign();
+        } catch (e) {
+            alert("Failed to assign location");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (!device) return null;
+
+    return (
+        <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-white/5">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">Location</h3>
+            <div className="space-y-3">
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Site</label>
+                    <select
+                        className="w-full px-2 py-1.5 text-sm border border-slate-300 dark:border-white/20 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        value={selectedSiteId}
+                        onChange={e => {
+                            setSelectedSiteId(e.target.value);
+                            setSelectedAreaId(""); // Reset area when site changes
+                        }}
+                    >
+                        <option value="">Unassigned</option>
+                        {sites.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Area</label>
+                    <select
+                        className="w-full px-2 py-1.5 text-sm border border-slate-300 dark:border-white/20 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white disabled:opacity-50"
+                        value={selectedAreaId}
+                        onChange={e => setSelectedAreaId(e.target.value)}
+                        disabled={!selectedSiteId}
+                    >
+                        <option value="">Unassigned</option>
+                        {availableAreas.map(a => (
+                            <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <button
+                    onClick={handleSave}
+                    disabled={loading}
+                    className="w-full py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-500 disabled:opacity-50"
+                >
+                    {loading ? "Saving..." : "Save Location"}
+                </button>
+            </div>
+        </div>
+    );
+}
 
 type Alert = {
     id: string;
@@ -29,8 +118,11 @@ type Alert = {
 
 export default function DeviceDetails() {
     const { id } = useParams<{ id: string }>();
+    const { user } = useAuth();
     const [device, setDevice] = useState<Device | null>(null);
     const [alerts, setAlerts] = useState<Alert[]>([]);
+    const [rules, setRules] = useState<DeviceAlarmRule[]>([]);
+    const [isAddRuleModalOpen, setIsAddRuleModalOpen] = useState(false);
     const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -41,11 +133,7 @@ export default function DeviceDetails() {
         const fetchDevice = async () => {
             try {
                 // Fetch list and find (simple v0 approach)
-                const res = await fetch("http://127.0.0.1:3000/api/v1/dashboard/devices?limit=100", {
-                    headers: { "X-Client-Id": "test-client" },
-                });
-                if (!res.ok) throw new Error(`Device HTTP ${res.status}`);
-                const json = await res.json();
+                const json = await getDashboardDevices({ limit: 100 });
                 const found = json.data.find((d: Device) => d.id === id);
                 setDevice(found || null);
             } catch (e: any) {
@@ -58,14 +146,10 @@ export default function DeviceDetails() {
     // Fetch Alerts
     const fetchAlerts = async (cursor?: string) => {
         try {
-            let url = `http://127.0.0.1:3000/api/v1/alerts/history?device_id=${id}&limit=20`;
+            let url = `/api/v1/alerts/history?device_id=${id}&limit=20`;
             if (cursor) url += `&cursor=${cursor}`;
 
-            const res = await fetch(url, {
-                headers: { "X-Client-Id": "test-client" },
-            });
-            if (!res.ok) throw new Error(`Alerts HTTP ${res.status}`);
-            const json = await res.json();
+            const json = await fetchClient(url);
 
             if (cursor) {
                 setAlerts(prev => [...prev, ...json.data]);
@@ -81,27 +165,59 @@ export default function DeviceDetails() {
         }
     };
 
+    const fetchRules = async () => {
+        if (!id) return;
+        try {
+            const data = await listDeviceRules(id);
+            setRules(data);
+        } catch (e) {
+            console.error("Failed to fetch rules", e);
+        }
+    };
+
     useEffect(() => {
         fetchAlerts();
+        fetchRules();
     }, [id]);
 
     const handleAcknowledge = async (alertId: string) => {
         try {
-            const res = await fetch(`http://127.0.0.1:3000/api/v1/alerts/${alertId}/acknowledge`, {
-                method: "POST",
-                headers: { "X-Client-Id": "test-client" },
+            await fetchClient(`/api/v1/alerts/${alertId}/acknowledge`, {
+                method: "POST"
             });
 
-            if (res.ok) {
-                // Optimistic update
-                setAlerts(prev => prev.map(a =>
-                    a.id === alertId ? { ...a, acknowledged_at: new Date().toISOString() } : a
-                ));
-            }
+            // Optimistic update
+            setAlerts(prev => prev.map(a =>
+                a.id === alertId ? { ...a, acknowledged_at: new Date().toISOString() } : a
+            ));
         } catch (e) {
             console.error("Ack failed", e);
         }
     };
+
+    const toggleRule = async (ruleId: string, enabled: boolean) => {
+        try {
+            const updated = await updateDeviceRule(ruleId, { enabled });
+            setRules(prev => prev.map(r => r.id === ruleId ? updated : r));
+        } catch (e) {
+            console.error("Toggle rule failed", e);
+        }
+    };
+
+    const deleteRule = async (ruleId: string) => {
+        if (!confirm("Are you sure you want to delete this rule?")) return;
+        try {
+            await deleteDeviceRule(ruleId);
+            setRules(prev => prev.filter(r => r.id !== ruleId));
+        } catch (e: any) {
+            console.error("Delete rule failed", e);
+            alert(e?.message || "Failed to delete rule");
+        }
+    };
+
+    const canManageRules = user?.role === 'SUPER_ADMIN'
+        || user?.role === 'CLIENT_ADMIN'
+        || (user?.role === 'SITE_ADMIN' && device?.site_id === user.site_id);
 
     if (!device && loading) return <div className="text-slate-400">Loading...</div>;
     if (error) return <div className="text-red-400">Error: {error}</div>;
@@ -216,6 +332,8 @@ export default function DeviceDetails() {
 
                 {/* Sidebar / Extra Info */}
                 <div className="space-y-6">
+                    <LocationAssignment device={device} onAssign={() => window.location.reload()} />
+
                     <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-white/5">
                         <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Device Info</h3>
                         <dl className="space-y-2 text-sm">
@@ -229,8 +347,81 @@ export default function DeviceDetails() {
                             </div>
                         </dl>
                     </div>
+
+                    {/* Alert Rules Section */}
+                    <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-white/5">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Alert Rules</h3>
+                            {canManageRules && (
+                                <button
+                                    onClick={() => setIsAddRuleModalOpen(true)}
+                                    className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                                >
+                                    + Add Rule
+                                </button>
+                            )}
+                        </div>
+
+                        {rules.length === 0 ? (
+                            <div className="text-xs text-slate-500 italic">No alert rules configured.</div>
+                        ) : (
+                            <div className="space-y-3">
+                                {rules.map(rule => (
+                                    <div key={rule.id} className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-white/10 flex flex-col gap-2">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <div className="text-xs font-semibold text-slate-900 dark:text-white capitalize">
+                                                    {rule.metric} {rule.operator === 'gt' ? '>' : '<'} {rule.threshold}
+                                                </div>
+                                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                                    Delay: {Math.floor(rule.duration_seconds / 60)}m |
+                                                    <span className={`ml-1 font-medium ${rule.severity === 'red' ? 'text-red-600' : 'text-amber-600'}`}>
+                                                        {rule.severity.toUpperCase()}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {canManageRules && (
+                                                <div className="flex flex-col items-end gap-2">
+                                                    <label className="flex items-center cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={rule.enabled}
+                                                            onChange={e => toggleRule(rule.id, e.target.checked)}
+                                                            className="sr-only peer"
+                                                        />
+                                                        <div className="w-7 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                                                    </label>
+                                                    <button
+                                                        onClick={() => deleteRule(rule.id)}
+                                                        className="text-[10px] text-red-500 hover:text-red-700 font-medium"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {!canManageRules && (
+                                                <div className="text-xs text-slate-500">
+                                                    {rule.enabled ? 'Active' : 'Disabled'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
+
+            {isAddRuleModalOpen && device && (
+                <AddRuleModal
+                    deviceId={device.id}
+                    onClose={() => setIsAddRuleModalOpen(false)}
+                    onCreated={(rule) => {
+                        setRules(prev => [rule, ...prev]);
+                    }}
+                />
+            )}
         </div>
     );
 }

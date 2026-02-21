@@ -1,23 +1,114 @@
 services:
   postgres:
-    image: postgres:15-alpine
-    restart: always
+    image: postgres:16-alpine
+    restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: sense
+      POSTGRES_PASSWORD: sense
       POSTGRES_DB: sense
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U sense -d sense" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
+  # Redis is optional for v1 minimal setup, but included if worker needs it.
+  # If worker uses internal memory for now, we can omit. However, package.json implies bullmq requires redis.
   redis:
     image: redis:7-alpine
-    restart: always
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://sense:sense@postgres:5432/sense?schema=public
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
+      INTERNAL_ADMIN_TOKEN: test-admin-token
+      # Add other env vars here as needed
+      # INTERNAL_API_KEY: ...
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/v1/health" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # Run migrations before start
+    command: >
+      sh -c "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma && npm start -w apps/api"
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3002:3001" # host:container
+    environment:
+      DATABASE_URL: postgresql://sense:sense@postgres:5432/sense?schema=public
+      REDIS_URL: redis://redis:6379
+      PORT: 3001
+      JWT_SECRET: ${JWT_SECRET:-fallback-secret-for-dev-only}
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:3001/health" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  viewer:
+    build:
+      context: .
+      dockerfile: apps/viewer/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:3000 # Accessed from browser, so localhost:3000 is correct
+      VITE_ADMIN_TOKEN: test-admin-token
+    volumes:
+      - ./apps/viewer:/app/apps/viewer
+      - /app/apps/viewer/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5173" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

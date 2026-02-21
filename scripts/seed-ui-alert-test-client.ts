@@ -10,12 +10,69 @@ async function main() {
     create: { id: clientId, name: 'Test Client' },
   });
 
-  const device = await prisma.device.create({
-    data: {
+  // 1. Create Main Site
+  const site = await prisma.site.upsert({
+    where: {
+      client_id_name: {
+        client_id: clientId,
+        name: 'Main Site'
+      }
+    },
+    update: {},
+    create: {
+      client_id: clientId,
+      name: 'Main Site'
+    }
+  });
+
+  // 2. Create Areas
+  const kitchen = await prisma.area.upsert({
+    where: {
+      site_id_name: {
+        site_id: site.id,
+        name: 'Kitchen'
+      }
+    },
+    update: {},
+    create: {
+      site_id: site.id,
+      name: 'Kitchen'
+    }
+  });
+
+  await prisma.area.upsert({
+    where: {
+      site_id_name: {
+        site_id: site.id,
+        name: 'Fridge Room'
+      }
+    },
+    update: {},
+    create: {
+      site_id: site.id,
+      name: 'Fridge Room'
+    }
+  });
+
+  // 3. Create/Update Device with dimensions
+  const device = await prisma.device.upsert({
+    where: {
+      source_external_id: {
+        source: 'milesight',
+        external_id: 'ui_test_ext'
+      }
+    },
+    update: {
+      site_id: site.id,
+      area_id: kitchen.id
+    },
+    create: {
       client_id: clientId,
       source: 'milesight',
       external_id: 'ui_test_ext',
       name: 'UI Test Device',
+      site_id: site.id,
+      area_id: kitchen.id
     },
   });
 

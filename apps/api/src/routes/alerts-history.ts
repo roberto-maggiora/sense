@@ -20,11 +20,19 @@ export default async function alertsHistoryRoutes(fastify: FastifyInstance) {
         }
 
         try {
+            const whereClause: any = {
+                client_id: clientId,
+                device_id: device_id
+            };
+
+            if (request.user?.role === 'SITE_ADMIN') {
+                whereClause.device = {
+                    site_id: request.user.site_id || 'unassigned-guard'
+                };
+            }
+
             const alerts = await prisma.notificationOutbox.findMany({
-                where: {
-                    client_id: clientId,
-                    device_id: device_id
-                },
+                where: whereClause,
                 take: take + 1, // Fetch one extra to determine next cursor
                 cursor: cursor ? { id: cursor } : undefined,
                 orderBy: [
