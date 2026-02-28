@@ -27,3 +27,7 @@ export async function enqueueTelemetry(event: TelemetryEventV1) {
     const job = await telemetryQueue.add('telemetry-event', event);
     return job.id;
 }
+
+export async function getTelemetryQueueMetrics() {
+    return telemetryQueue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
+}

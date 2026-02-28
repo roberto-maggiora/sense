@@ -1,24 +1,24 @@
 import { useEffect, useState } from 'react';
-import { type DeviceAlarmRule, type User, createDeviceRule, listMyCompanyUsers } from '../lib/api';
+import { type DeviceAlarmRule, type User, updateDeviceRule, listMyCompanyUsers } from '../lib/api';
 
-interface AddRuleModalProps {
-    deviceId: string;
+interface EditRuleModalProps {
+    rule: DeviceAlarmRule;
     onClose: () => void;
-    onCreated: (rule: DeviceAlarmRule) => void;
+    onUpdated: (rule: DeviceAlarmRule) => void;
 }
 
-export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleModalProps) {
+export default function EditRuleModal({ rule, onClose, onUpdated }: EditRuleModalProps) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const [users, setUsers] = useState<User[]>([]);
-    const [recipients, setRecipients] = useState<string[]>([]);
+    const [recipients, setRecipients] = useState<string[]>(
+        rule.recipients ? rule.recipients.map(r => r.user.id) : []
+    );
 
-    const [metric, setMetric] = useState('temperature');
-    const [operator, setOperator] = useState<'gt' | 'lt'>('gt');
-    const [threshold, setThreshold] = useState<number>(30);
-    const [durationMinutes, setDurationMinutes] = useState<number>(5);
-    const [enabled, setEnabled] = useState(true);
+    const [threshold, setThreshold] = useState<number>(rule.threshold);
+    const [durationMinutes, setDurationMinutes] = useState<number>(Math.floor(rule.duration_seconds / 60));
+    const [enabled, setEnabled] = useState(rule.enabled);
 
     useEffect(() => {
         listMyCompanyUsers().then(setUsers).catch(console.error);
@@ -36,19 +36,16 @@ export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleMo
         setLoading(true);
 
         try {
-            const rule = await createDeviceRule(deviceId, {
-                metric,
-                operator,
+            const updated = await updateDeviceRule(rule.id, {
                 threshold,
                 duration_seconds: durationMinutes * 60,
-                severity: 'red',
                 enabled,
                 recipients
             });
-            onCreated(rule);
+            onUpdated(updated);
             onClose();
         } catch (err: any) {
-            setError(err.message || 'Failed to create rule');
+            setError(err.message || 'Failed to update rule');
         } finally {
             setLoading(false);
         }
@@ -58,7 +55,7 @@ export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleMo
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-white/10 w-full max-w-md overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 dark:border-white/5">
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Add Alert Rule</h2>
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Edit Alert Rule</h2>
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -68,26 +65,25 @@ export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleMo
                         </div>
                     )}
 
+                    {/* Metric and Condition are readonly */}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Metric</label>
-                            <select
-                                value={metric} onChange={e => setMetric(e.target.value)}
-                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-900 dark:text-white"
-                            >
-                                <option value="temperature">Temperature (°C)</option>
-                                <option value="humidity">Humidity (%)</option>
-                            </select>
+                            <input
+                                type="text"
+                                disabled
+                                value={rule.metric}
+                                className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-500 dark:text-slate-400"
+                            />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Condition</label>
-                            <select
-                                value={operator} onChange={e => setOperator(e.target.value as any)}
-                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-900 dark:text-white"
-                            >
-                                <option value="gt">Greater Than (&gt;)</option>
-                                <option value="lt">Less Than (&lt;)</option>
-                            </select>
+                            <input
+                                type="text"
+                                disabled
+                                value={rule.operator === 'gt' ? 'Greater Than (>)' : 'Less Than (<)'}
+                                className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-500 dark:text-slate-400"
+                            />
                         </div>
                     </div>
 
@@ -138,7 +134,7 @@ export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleMo
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 items-center">
-                        <div className="flex items-center mt-6">
+                        <div className="flex items-center mt-4">
                             <label className="flex items-center cursor-pointer">
                                 <input
                                     type="checkbox"
@@ -165,7 +161,7 @@ export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleMo
                             disabled={loading}
                             className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg shadow hover:bg-blue-500 focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 transition-colors"
                         >
-                            {loading ? 'Saving...' : 'Create Rule'}
+                            {loading ? 'Saving...' : 'Save Changes'}
                         </button>
                     </div>
                 </form>

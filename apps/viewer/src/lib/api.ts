@@ -117,7 +117,14 @@ export async function updateArea(id: string, updates: { name?: string; disabled?
     });
 }
 
-export async function updateDevice(id: string, payload: { name?: string; disabled?: boolean; site_id?: string | null; area_id?: string | null }) {
+export async function updateDevice(id: string, payload: {
+    name?: string;
+    site_id?: string | null;
+    area_id?: string | null;
+    manufacturer?: string | null;
+    model?: string | null;
+    disabled?: boolean;
+}) {
     return fetchClient(`/api/v1/devices/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload)
@@ -246,6 +253,43 @@ export async function getDashboardDevices(filters?: { site_id?: string; area_id?
     return fetchClient(`/api/v1/dashboard/devices?${params.toString()}`);
 }
 
+export interface BatteryAttentionDevice {
+    device_id: string;
+    external_id: string | null;
+    name: string;
+    battery_percent: number | null;
+    battery_raw: number | null;
+    battery_updated_at: string | null;
+    alert_created_at: string;
+    alert_id: string;
+    alert_status: string;
+    severity: string;
+}
+
+export async function getBatteryAttentionDevices(): Promise<{ data: BatteryAttentionDevice[] }> {
+    return fetchClient('/api/v1/dashboard/battery-attention');
+}
+
+export type CreateDevicePayload = {
+    name: string;
+    source: string;
+    external_id: string;
+    site_id?: string | null;
+    area_id?: string | null;
+    manufacturer?: string | null;
+    model?: string | null;
+};
+
+export async function createDevice(data: CreateDevicePayload): Promise<any> {
+    return fetchClient('/api/v1/devices', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    });
+}
+
 // -------------------------------------------------------------
 // Client Admin APIs
 // -------------------------------------------------------------
@@ -291,6 +335,7 @@ export interface DeviceAlarmRule {
     duration_seconds: number;
     severity: 'amber' | 'red';
     enabled: boolean;
+    recipients?: { user: { id: string, email: string, name: string | null, role: string } }[];
     created_at: string;
     updated_at: string;
 }
@@ -299,14 +344,14 @@ export async function listDeviceRules(deviceId: string): Promise<DeviceAlarmRule
     return fetchClient(`/api/v1/devices/${deviceId}/rules`);
 }
 
-export async function createDeviceRule(deviceId: string, payload: Omit<DeviceAlarmRule, 'id' | 'device_id' | 'created_at' | 'updated_at'>): Promise<DeviceAlarmRule> {
+export async function createDeviceRule(deviceId: string, payload: Omit<DeviceAlarmRule, 'id' | 'device_id' | 'created_at' | 'updated_at' | 'recipients'> & { recipients: string[] }): Promise<DeviceAlarmRule> {
     return fetchClient(`/api/v1/devices/${deviceId}/rules`, {
         method: 'POST',
         body: JSON.stringify(payload)
     });
 }
 
-export async function updateDeviceRule(ruleId: string, payload: Partial<DeviceAlarmRule>): Promise<DeviceAlarmRule> {
+export async function updateDeviceRule(ruleId: string, payload: Partial<Omit<DeviceAlarmRule, 'recipients'>> & { recipients?: string[] }): Promise<DeviceAlarmRule> {
     return fetchClient(`/api/v1/rules/${ruleId}`, {
         method: 'PATCH',
         body: JSON.stringify(payload)
@@ -315,6 +360,47 @@ export async function updateDeviceRule(ruleId: string, payload: Partial<DeviceAl
 
 export async function deleteDeviceRule(ruleId: string): Promise<void> {
     await fetchClient(`/api/v1/rules/${ruleId}`, {
+        method: 'DELETE'
+    });
+}
+
+// -------------------------------------------------------------
+// Hub Status API
+// -------------------------------------------------------------
+
+export interface HubStatus {
+    id: string;
+    serial: string;
+    friendly_name: string | null;
+    last_heartbeat_at: string | null;
+    status: 'online' | 'offline' | 'unknown';
+    minutes_since_heartbeat: number | null;
+}
+
+export async function getHubStatus(): Promise<{ data: HubStatus[] }> {
+    return fetchClient('/api/v1/dashboard/hub-status');
+}
+
+export async function getHubs(): Promise<{ data: HubStatus[] }> {
+    return fetchClient('/api/v1/hubs');
+}
+
+export async function registerHub(payload: { serial: string; friendly_name?: string }): Promise<{ ok: boolean, data: any }> {
+    return fetchClient('/api/v1/hubs/register', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+    });
+}
+
+export async function updateHub(id: string, friendly_name: string): Promise<{ ok: boolean, data: any }> {
+    return fetchClient(`/api/v1/hubs/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ friendly_name })
+    });
+}
+
+export async function deleteHub(id: string): Promise<{ deleted: number }> {
+    return fetchClient(`/api/v1/hubs/${id}`, {
         method: 'DELETE'
     });
 }

@@ -22,10 +22,9 @@ interface ResetPasswordBody {
 export default async function userRoutes(app: FastifyInstance) {
     const allowedRoles = ['CLIENT_ADMIN', 'SITE_ADMIN', 'VIEWER'];
 
-    app.addHook('preHandler', app.requireRole(['CLIENT_ADMIN', 'SUPER_ADMIN']));
     app.addHook('preHandler', app.requireClientId);
 
-    app.get('/', async (request, reply) => {
+    app.get('/', { preHandler: [app.requireRole(['CLIENT_ADMIN', 'SUPER_ADMIN', 'SITE_ADMIN', 'VIEWER'])] }, async (request, reply) => {
         const clientId = request.clientId as string;
         const users = await prisma.user.findMany({
             where: { client_id: clientId },
@@ -43,7 +42,7 @@ export default async function userRoutes(app: FastifyInstance) {
         return { data: users };
     });
 
-    app.post<{ Body: CreateUserBody }>('/', async (request, reply) => {
+    app.post<{ Body: CreateUserBody }>('/', { preHandler: [app.requireRole(['CLIENT_ADMIN', 'SUPER_ADMIN'])] }, async (request, reply) => {
         const clientId = request.clientId as string;
         const body = request.body;
 
@@ -85,7 +84,7 @@ export default async function userRoutes(app: FastifyInstance) {
         return reply.code(201).send({ data: newTarget });
     });
 
-    app.patch<{ Params: { id: string }, Body: UpdateUserBody }>('/:id', async (request, reply) => {
+    app.patch<{ Params: { id: string }, Body: UpdateUserBody }>('/:id', { preHandler: [app.requireRole(['CLIENT_ADMIN', 'SUPER_ADMIN'])] }, async (request, reply) => {
         const clientId = request.clientId as string;
         const { id } = request.params;
         const body = request.body;
@@ -132,7 +131,7 @@ export default async function userRoutes(app: FastifyInstance) {
         return { data: updated };
     });
 
-    app.post<{ Params: { id: string }, Body: ResetPasswordBody }>('/:id/reset-password', async (request, reply) => {
+    app.post<{ Params: { id: string }, Body: ResetPasswordBody }>('/:id/reset-password', { preHandler: [app.requireRole(['CLIENT_ADMIN', 'SUPER_ADMIN'])] }, async (request, reply) => {
         const clientId = request.clientId as string;
         const { id } = request.params;
         const { password } = request.body;

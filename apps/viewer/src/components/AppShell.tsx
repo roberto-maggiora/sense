@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, NavLink, useNavigate } from "react-router-do
 import { LayoutDashboard, Cpu, Bell, Settings, LogOut, Map } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { isSuperAdmin, canManageCompanyUsers } from "../lib/roles";
+import AiChatSidebar, { ChatTriggerButton } from "./AiChatSidebar";
 
 export default function AppShell() {
     const { user, client, logout, selectedClientId, selectedClientName, setSelectedClientId } = useAuth();
@@ -15,6 +16,7 @@ export default function AppShell() {
     });
 
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [isChatOpen, setIsChatOpen] = useState(false);
     const location = useLocation();
 
     useEffect(() => {
@@ -68,7 +70,7 @@ export default function AppShell() {
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
             {/* Sidebar (Desktop) */}
-            <aside className="fixed inset-y-0 left-0 hidden w-64 bg-slate-900 text-slate-400 md:flex flex-col z-20 shadow-xl border-r border-white/5">
+            <aside className="fixed inset-y-0 left-0 hidden w-56 bg-slate-900 text-slate-400 md:flex flex-col z-20 shadow-xl border-r border-white/5">
                 {/* Project Switcher */}
                 <div className="h-16 px-4 flex items-center border-b border-white/5">
                     <div className="w-full flex items-center gap-3 px-2 py-1.5 rounded-lg group">
@@ -295,13 +297,18 @@ export default function AppShell() {
             )}
 
             {/* Main Content */}
-            <div className="md:pl-64 flex flex-col min-h-screen">
+            <div className="md:pl-56 flex flex-col min-h-screen">
                 {/* Topbar (Desktop) */}
                 <header className="hidden md:flex h-16 sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-white/10 z-10 px-6 items-center justify-between">
                     <h1 className="text-lg font-semibold">
                         {navLinks.find(l => l.path === location.pathname)?.name || (location.pathname.startsWith("/device/") ? "Device Details" : "Viewer")}
                     </h1>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 ml-auto">
+                        <div id="topbar-actions" className="flex items-center gap-2 empty:hidden"></div>
+                        <ChatTriggerButton
+                            onClick={() => setIsChatOpen(prev => !prev)}
+                            active={isChatOpen}
+                        />
                         <button
                             onClick={toggleTheme}
                             className="p-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors rounded-full hover:bg-slate-100 dark:hover:bg-white/5"
@@ -321,6 +328,9 @@ export default function AppShell() {
                     <Outlet />
                 </main>
             </div>
+
+            {/* AI Chat Sidebar — mounted once so messages survive navigation */}
+            <AiChatSidebar open={isChatOpen} onClose={() => setIsChatOpen(false)} />
         </div>
     );
 }

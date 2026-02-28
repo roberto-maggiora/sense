@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { prisma } from '@sense/database';
+import { prisma, listDevicesNeedingBatteryReplacement, listHubsWithStatus } from '@sense/database';
 
 export default async function dashboardRoutes(fastify: FastifyInstance) {
     fastify.get('/summary', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
@@ -122,6 +122,7 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
             SELECT 
                 d.id, d.client_id, d.site_id, d.area_id, d.source, d.external_id, d.name, d.disabled_at, d.created_at,
                 s.status, s.reason, s.updated_at as status_updated_at,
+                s.battery_percent, s.battery_raw, s.battery_updated_at,
                 t.payload as last_telemetry, t.occurred_at as last_telemetry_at,
                 site.name as site_name,
                 area.name as area_name
@@ -158,6 +159,25 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                     new Date(row.last_telemetry_at).getTime() <
                     Date.now() - 30 * 60 * 1000;
 
+                let tempVal: number | null = null;
+                let humVal: number | null = null;
+
+                if (row.last_telemetry) {
+                    const payload = typeof row.last_telemetry === 'string'
+                        ? JSON.parse(row.last_telemetry)
+                        : row.last_telemetry;
+
+                    // Support both payload.metrics and payload.raw for different structures
+                    const metricsArray = payload.metrics || payload.raw?.metrics;
+
+                    if (Array.isArray(metricsArray)) {
+                        const t = metricsArray.find((m: any) => m?.parameter === 'temperature');
+                        const h = metricsArray.find((m: any) => m?.parameter === 'humidity');
+                        if (t && typeof t.value === 'number') tempVal = t.value;
+                        if (h && typeof h.value === 'number') humVal = h.value;
+                    }
+                }
+
                 return {
                     id: row.id,
                     client_id: row.client_id,
@@ -192,8 +212,11 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                     } : null,
 
                     metrics: {
-                        temperature: row.last_telemetry?.temperature ?? null,
-                        humidity: row.last_telemetry?.humidity ?? null
+                        temperature: tempVal,
+                        humidity: humVal,
+                        battery_percent: row.battery_percent != null ? Number(row.battery_percent) : null,
+                        battery_raw: row.battery_raw != null ? Number(row.battery_raw) : null,
+                        battery_updated_at: row.battery_updated_at ?? null,
                     }
                 };
             });
@@ -202,6 +225,28 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
             return reply.send({ data: results });
         } catch (error) {
             request.log.error(error, 'Error fetching dashboard devices');
+            return reply.code(500).send({ error: 'Internal Server Error' });
+        }
+    });
+
+    fastify.get('/battery-attention', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
+        try {
+            const devices = await listDevicesNeedingBatteryReplacement(clientId);
+            return reply.send({ data: devices });
+        } catch (error) {
+            request.log.error(error, 'Error fetching battery attention devices');
+            return reply.code(500).send({ error: 'Internal Server Error' });
+        }
+    });
+
+    fastify.get('/hub-status', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
+        try {
+            const hubs = await listHubsWithStatus(clientId);
+            return reply.send({ data: hubs });
+        } catch (error) {
+            request.log.error(error, 'Error fetching hub status');
             return reply.code(500).send({ error: 'Internal Server Error' });
         }
     });

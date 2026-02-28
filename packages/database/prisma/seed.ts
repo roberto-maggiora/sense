@@ -1,5 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-
+import bcrypt from 'bcrypt';
+import { PrismaClient, Role } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
@@ -10,6 +10,7 @@ async function main() {
         await prisma.device.deleteMany();
         await prisma.area.deleteMany();
         await prisma.site.deleteMany();
+        await prisma.user.deleteMany();
         await prisma.client.deleteMany();
     } catch (e) {
         console.warn("Error cleaning up data, proceeding...", e);
@@ -48,7 +49,19 @@ async function main() {
             name: 'Test Client B'
         }
     });
+    // Create default admin user
+    const passwordHash = await bcrypt.hash('admin123', 10);
 
+    const adminUser = await prisma.user.create({
+        data: {
+            email: 'admin@sense.local',
+            name: 'System Admin',
+            password_hash: passwordHash,
+            role: Role.SUPER_ADMIN
+        }
+    });
+
+    console.log(`Admin user created: ${adminUser.email}`);
     console.log('Seeding completed.');
     console.log('------------------------------------------------');
     console.log(`Client A (${clientA.name}): ${clientA.id}`);

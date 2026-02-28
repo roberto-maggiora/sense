@@ -1,67 +1,104 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import TelemetryChart from "./TelemetryChart";
+import { fetchClient } from "../lib/api"; // adjust path if needed
 
 type TemperatureHistoryCardProps = {
     deviceId: string;
 };
 
+type ChartPoint = {
+    timestamp: string;
+    value: number | null;
+};
+
 export default function TemperatureHistoryCard({ deviceId }: TemperatureHistoryCardProps) {
     const [timeRange, setTimeRange] = useState<"24h" | "7d">("24h");
+    console.log("TemperatureHistoryCard mounted for", deviceId);
+    const [chartData, setChartData] = useState<ChartPoint[]>([]);
+    const [loading, setLoading] = useState(false);
 
-    // Mock Data Logic (extracted from DeviceDetails)
-    const chartData = useMemo(() => {
-        const now = new Date();
-        const points = [];
-        const count = 48; // number of points
-        const durationHours = timeRange === "24h" ? 24 : 168;
-        const interval = (durationHours * 60 * 60 * 1000) / count;
+    useEffect(() => {
+        const load = async () => {
+            if (!deviceId) return;
+            setLoading(true);
 
-        // Deterministic-ish random for consistent look per device/reload
-        // Simple sine wave + noise + deviceId generic hash influence
-        const deviceHash = deviceId.split("").reduce((a, b) => a + b.charCodeAt(0), 0);
+            try {
+                const now = new Date();
+                const from = new Date(
+                    timeRange === "24h"
+                        ? now.getTime() - 24 * 60 * 60 * 1000
+                        : now.getTime() - 7 * 24 * 60 * 60 * 1000
+                );
 
-        for (let i = 0; i < count; i++) {
-            const t = new Date(now.getTime() - (count - 1 - i) * interval);
-            // Base temp around 22C, with day/night cycle (24h period)
-            const hour = t.getHours();
+                // Your Fastify route returns an array of events:
+                // [{ occurred_at, received_at, metrics: [...], ...}, ...]
+                const res = await fetchClient(
+                    `/api/v1/devices/${deviceId}/telemetry?from=${encodeURIComponent(
+                        from.toISOString()
+                    )}&to=${encodeURIComponent(now.toISOString())}&limit=500`
+                );
 
-            // Offset phase by deviceHash to make different devices look different
-            const phase = (deviceHash % 24) / 24 * Math.PI * 2;
+                // fetchClient might return either the raw array OR { data: [...] }
+                const events = Array.isArray(res) ? res : res?.data;
 
-            const dayCycle = Math.sin(((hour - 6) / 24 * Math.PI * 2) + phase) * 5; // -5 to +5
-            const noise = (Math.random() - 0.5) * 2; // -1 to +1
+                const mapped: ChartPoint[] = (events || []).map((e: any) => {
+                    const tempMetric = Array.isArray(e.metrics)
+                        ? e.metrics.find((m: any) => m?.parameter === "temperature")
+                        : null;
 
-            points.push({
-                timestamp: t.toISOString(),
-                value: parseFloat((22 + dayCycle + noise).toFixed(1))
-            });
-        }
-        return points;
-    }, [timeRange, deviceId]);
+                    return {
+                        timestamp: e.occurred_at,
+                        value: tempMetric?.value ?? null
+                    };
+                });
+
+                // API returns newest-first (orderBy desc). Chart usually wants oldest-first.
+                setChartData(mapped.reverse());
+            } catch (err) {
+                console.error("Failed to load telemetry", err);
+                setChartData([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        load();
+    }, [deviceId, timeRange]);
 
     return (
         <section className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-white/10 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">Temperature History</h2>
-                <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
-                    <button
-                        onClick={() => setTimeRange("24h")}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${timeRange === "24h"
-                            ? "bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow-sm"
-                            : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                            }`}
-                    >
-                        24h
-                    </button>
-                    <button
-                        onClick={() => setTimeRange("7d")}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${timeRange === "7d"
-                            ? "bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow-sm"
-                            : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                            }`}
-                    >
-                        7d
-                    </button>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Temperature History
+                </h2>
+
+                <div className="flex items-center gap-3">
+                    {loading && (
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                            Loading…
+                        </span>
+                    )}
+
+                    <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
+                        <button
+                            onClick={() => setTimeRange("24h")}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${timeRange === "24h"
+                                ? "bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow-sm"
+                                : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                }`}
+                        >
+                            24h
+                        </button>
+                        <button
+                            onClick={() => setTimeRange("7d")}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${timeRange === "7d"
+                                ? "bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow-sm"
+                                : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                }`}
+                        >
+                            7d
+                        </button>
+                    </div>
                 </div>
             </div>
 

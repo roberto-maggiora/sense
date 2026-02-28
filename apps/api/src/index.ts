@@ -20,15 +20,17 @@ fastify.get('/api/v1/health', async (request, reply) => {
 
 import deviceRoutes from './routes/devices';
 import ingestMilesightRoutes from './routes/ingest-milesight';
+import ingestHawkRoutes from './routes/ingest-hawk';
+import ingestHealthRoutes from './routes/internal/ingest-health';
 import internalStatsRoutes from './routes/internal-stats';
 import telemetryReadRoutes from './routes/telemetry-read';
 import alertRulesRoutes from './routes/alert-rules';
 import deviceStatusRoutes from './routes/device-status';
 import dashboardRoutes from './routes/dashboard';
-import alertsHistoryRoutes from './routes/alerts-history';
-import alertsAcknowledgeRoutes from './routes/alerts-acknowledge';
+import alertsRoutes from './routes/alerts';
 import siteRoutes from './routes/sites';
 import areaRoutes from './routes/areas';
+import hubsRoutes from './routes/hubs';
 
 import adminClientRoutes from './routes/admin/clients';
 import adminUserRoutes from './routes/admin/users';
@@ -57,14 +59,16 @@ const start = async () => {
 
         fastify.register(deviceRoutes, { prefix: '/api/v1' });
         fastify.register(ingestMilesightRoutes, { prefix: '/api/v1' });
+        fastify.register(ingestHawkRoutes, { prefix: '/api/v1' });
+        fastify.register(ingestHealthRoutes, { prefix: '/api/v1/internal' });
         fastify.register(internalStatsRoutes, { prefix: '/api/v1' });
         fastify.register(telemetryReadRoutes, { prefix: '/api/v1' });
         fastify.register(alertRulesRoutes, { prefix: '/api/v1' });
         fastify.register(deviceStatusRoutes, { prefix: '/api/v1' });
-        fastify.register(alertsHistoryRoutes, { prefix: '/api/v1' });
-        fastify.register(alertsAcknowledgeRoutes, { prefix: '/api/v1' });
+        fastify.register(alertsRoutes, { prefix: '/api/v1' });
         fastify.register(siteRoutes, { prefix: '/api/v1' });
         fastify.register(areaRoutes, { prefix: '/api/v1' });
+        fastify.register(hubsRoutes, { prefix: '/api/v1/hubs' });
         fastify.register(import('./routes/device-rules.js').then(m => m.default), { prefix: '/api/v1' });
         fastify.register(dashboardRoutes, { prefix: '/api/v1/dashboard' }); // Note prefix includes /dashboard
         fastify.register(import('./routes/users.js').then(m => m.default), { prefix: '/api/v1/users' });

@@ -5,3 +5,9 @@ build
 .DS_Store
 coverage
 .vscode
+.antigravityrules
+*.tsbuildinfo
+emqxsl-ca.crt
+refactor_*.py
+test-*.ts
+scripts/test-*.sh

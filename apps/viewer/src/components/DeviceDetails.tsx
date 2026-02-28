@@ -4,15 +4,19 @@ import TemperatureHistoryCard from "./TemperatureHistoryCard";
 import { updateDevice, listSites, type Site, getDashboardDevices, fetchClient, listDeviceRules, updateDeviceRule, deleteDeviceRule, type DeviceAlarmRule } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import AddRuleModal from "./AddRuleModal";
+import { AlertsTable, type ApiAlert, formatDateTime } from "../pages/Alerts";
+import { AlertTimelineDrawer } from "./AlertTimelineDrawer";
 
 type Device = {
     id: string;
     name: string;
+    external_id?: string;
+    source?: string;
     site_id?: string | null;
     area_id?: string | null;
     current_status: { status: string } | null;
     latest_telemetry: { occurred_at: string } | null;
-    metrics: { temperature: number | null; humidity: number | null };
+    metrics: { temperature?: number | null; humidity?: number | null; battery_percent?: number | null };
 };
 
 function LocationAssignment({ device, onAssign }: { device: Device | null, onAssign: () => void }) {
@@ -99,33 +103,18 @@ function LocationAssignment({ device, onAssign }: { device: Device | null, onAss
     );
 }
 
-type Alert = {
-    id: string;
-    created_at: string;
-    // payload is parsed from message
-    payload: {
-        event: string;
-        value?: number;
-        rule_summary?: {
-            parameter: string;
-            operator: string;
-            threshold: number;
-            value: number;
-        };
-    };
-    acknowledged_at?: string | null;
-};
-
 export default function DeviceDetails() {
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
     const [device, setDevice] = useState<Device | null>(null);
-    const [alerts, setAlerts] = useState<Alert[]>([]);
+    const [alerts, setAlerts] = useState<ApiAlert[]>([]);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [rules, setRules] = useState<DeviceAlarmRule[]>([]);
     const [isAddRuleModalOpen, setIsAddRuleModalOpen] = useState(false);
     const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [timelineAlertId, setTimelineAlertId] = useState<string | null>(null);
 
 
     // Fetch Device Details
@@ -146,17 +135,19 @@ export default function DeviceDetails() {
     // Fetch Alerts
     const fetchAlerts = async (cursor?: string) => {
         try {
-            let url = `/api/v1/alerts/history?device_id=${id}&limit=20`;
+            let url = `/api/v1/alerts?device_id=${id}&include_closed=1&limit=50`;
             if (cursor) url += `&cursor=${cursor}`;
 
             const json = await fetchClient(url);
+            const rawList = Array.isArray(json) ? json : (json.data ?? []);
+            const next = Array.isArray(json) ? null : (json.next_cursor ?? null);
 
             if (cursor) {
-                setAlerts(prev => [...prev, ...json.data]);
+                setAlerts(prev => [...prev, ...rawList]);
             } else {
-                setAlerts(json.data);
+                setAlerts(rawList);
             }
-            setNextCursor(json.next_cursor);
+            setNextCursor(next);
         } catch (e: any) {
             console.error(e);
             // Don't block UI for alerts error, just log
@@ -181,19 +172,40 @@ export default function DeviceDetails() {
     }, [id]);
 
     const handleAcknowledge = async (alertId: string) => {
+        const original = [...alerts];
+        setAlerts(prev => prev.map(a => a.id === alertId
+            ? { ...a, status: 'acknowledged', acknowledged_at: new Date().toISOString() } as ApiAlert
+            : a
+        ));
+        setActionLoading(alertId);
         try {
-            await fetchClient(`/api/v1/alerts/${alertId}/acknowledge`, {
-                method: "POST"
-            });
-
-            // Optimistic update
-            setAlerts(prev => prev.map(a =>
-                a.id === alertId ? { ...a, acknowledged_at: new Date().toISOString() } : a
-            ));
+            await fetchClient(`/api/v1/alerts/${alertId}/acknowledge`, { method: "POST", body: '{}' });
         } catch (e) {
             console.error("Ack failed", e);
+            setAlerts(original);
+        } finally {
+            setActionLoading(null);
         }
     };
+
+    const handleResolve = async (alertId: string) => {
+        const original = [...alerts];
+        setAlerts(prev => prev.map(a => a.id === alertId
+            ? { ...a, status: 'resolved', resolved_at: new Date().toISOString() } as ApiAlert
+            : a
+        ));
+        setActionLoading(alertId);
+        try {
+            await fetchClient(`/api/v1/alerts/${alertId}/resolve`, { method: 'POST', body: '{}' });
+        } catch {
+            setAlerts(original);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const openAlerts = alerts.filter(a => !['resolved', 'auto_resolved'].includes(a.status));
+    const historyAlerts = alerts.filter(a => ['resolved', 'auto_resolved'].includes(a.status));
 
     const toggleRule = async (ruleId: string, enabled: boolean) => {
         try {
@@ -231,122 +243,51 @@ export default function DeviceDetails() {
 
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-white/10 pb-6 mb-8">
-                <div>
-                    <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100">{device?.name}</h1>
-                    <div className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-mono">{device?.id}</div>
+                <div className="min-w-0 mr-4">
+                    <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100 truncate">{device?.name}</h1>
+                    <div className="text-sm text-slate-500 dark:text-slate-400 mt-1 truncate">Sensor ID: <span className="font-mono">{device?.external_id || '—'}</span></div>
                 </div>
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-6 whitespace-nowrap shrink-0">
                     <StatusBadge status={device?.current_status?.status} />
-                    <div className="text-right">
+
+                    <div className="flex items-center gap-2 shrink-0 text-sm text-slate-500 dark:text-slate-400">
+                        <span>Last seen: {device?.latest_telemetry?.occurred_at ? formatDateTime(device.latest_telemetry.occurred_at) : 'Never'}</span>
+                    </div>
+
+                    {(device?.metrics?.battery_percent !== undefined) && (
+                        <div className="flex items-center gap-2 shrink-0 text-sm text-slate-500 dark:text-slate-400">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h8a2 2 0 012 2v6a2 2 0 01-2 2H8a2 2 0 01-2-2V9a2 2 0 012-2z M18 10v4" />
+                            </svg>
+                            <span>{device.metrics.battery_percent != null ? `${device.metrics.battery_percent}%` : '—'}</span>
+                        </div>
+                    )}
+
+                    <div className="flex items-center gap-3 shrink-0 border-l border-slate-200 dark:border-white/10 pl-6">
                         <div className="text-xl font-semibold text-slate-900 dark:text-slate-200">
                             {device?.metrics?.temperature != null ? `${device.metrics.temperature}°C` : '—'}
                         </div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400">
-                            {device?.metrics?.humidity != null ? `${device.metrics.humidity}%` : '—'} Humidity
-                        </div>
+                        {device?.source !== 'hawk' && (
+                            <div className="text-sm text-slate-500 dark:text-slate-400">
+                                {device?.metrics?.humidity != null ? `${device.metrics.humidity}%` : '—'}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
                 {/* Main Column */}
                 <div className="lg:col-span-2 space-y-8">
 
                     {/* Telemetry Chart Card */}
                     {id && <TemperatureHistoryCard deviceId={id} />}
 
-                    {/* Alerts */}
-                    <section>
-                        <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white">Alert History</h2>
-                        <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 shadow-sm">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-white/5">
-                                    <tr>
-                                        <th className="p-3">Time</th>
-                                        <th className="p-3">Event</th>
-                                        <th className="p-3">Details</th>
-                                        <th className="p-3 text-right">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                                    {alerts.map((a) => (
-                                        <tr key={a.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
-                                            <td className="p-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                                {new Date(a.created_at).toLocaleString()}
-                                            </td>
-                                            <td className="p-3">
-                                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${a.payload?.event === 'ALERT_RED'
-                                                    ? 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/20'
-                                                    : 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-500/20 dark:text-slate-300 dark:border-slate-500/20'
-                                                    }`}>
-                                                    {a.payload?.event || 'Unknown'}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 text-slate-600 dark:text-slate-400 text-xs">
-                                                {a.payload?.rule_summary ? (
-                                                    <>
-                                                        <span className="font-semibold">{a.payload.rule_summary.parameter}</span> {a.payload.rule_summary.operator} {a.payload.rule_summary.threshold}
-                                                        {' '}(val: {a.payload.rule_summary.value})
-                                                    </>
-                                                ) : JSON.stringify(a.payload).slice(0, 50)}
-                                            </td>
-                                            <td className="p-3 text-right">
-                                                {a.acknowledged_at ? (
-                                                    <span className="text-xs text-emerald-600 dark:text-emerald-400 px-2 py-1 bg-emerald-50 dark:bg-emerald-500/10 rounded border border-emerald-200 dark:border-emerald-500/20">
-                                                        Acknowledged
-                                                    </span>
-                                                ) : (
-                                                    <button
-                                                        onClick={() => handleAcknowledge(a.id)}
-                                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded shadow-sm transition-colors"
-                                                    >
-                                                        Acknowledge
-                                                    </button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {alerts.length === 0 && (
-                                        <tr>
-                                            <td colSpan={4} className="p-8 text-center text-slate-500 italic">
-                                                No alert history.
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                        {nextCursor && (
-                            <div className="mt-6 text-center">
-                                <button
-                                    onClick={() => fetchAlerts(nextCursor)}
-                                    disabled={loading}
-                                    className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded shadow-sm transition-colors"
-                                >
-                                    {loading ? "Loading..." : "Load More"}
-                                </button>
-                            </div>
-                        )}
-                    </section>
                 </div>
 
                 {/* Sidebar / Extra Info */}
                 <div className="space-y-6">
                     <LocationAssignment device={device} onAssign={() => window.location.reload()} />
-
-                    <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-white/5">
-                        <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Device Info</h3>
-                        <dl className="space-y-2 text-sm">
-                            <div className="flex justify-between">
-                                <dt className="text-slate-500">ID</dt>
-                                <dd className="font-mono text-xs">{device?.id}</dd>
-                            </div>
-                            <div className="flex justify-between">
-                                <dt className="text-slate-500">Last Seen</dt>
-                                <dd>{device?.latest_telemetry?.occurred_at ? new Date(device.latest_telemetry.occurred_at).toLocaleString() : 'Never'}</dd>
-                            </div>
-                        </dl>
-                    </div>
 
                     {/* Alert Rules Section */}
                     <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-white/5">
@@ -413,6 +354,58 @@ export default function DeviceDetails() {
                 </div>
             </div>
 
+            {/* Alerts */}
+            <section className="space-y-8 w-full">
+                <div>
+                    <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white">Open alerts ({openAlerts.length})</h2>
+                    <AlertsTable
+                        alerts={openAlerts}
+                        loading={loading}
+                        filter="all"
+                        search=""
+                        actionLoading={actionLoading}
+                        onAcknowledge={handleAcknowledge}
+                        onResolve={handleResolve}
+                        onViewTimeline={setTimelineAlertId}
+                    />
+                    {openAlerts.length === 0 && !loading && (
+                        <div className="p-8 text-center text-slate-500 italic border border-slate-200 dark:border-white/10 rounded-xl bg-white dark:bg-slate-900">
+                            No open alerts
+                        </div>
+                    )}
+                </div>
+
+                <div>
+                    <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white">Resolved alerts ({historyAlerts.length})</h2>
+                    <AlertsTable
+                        alerts={historyAlerts}
+                        loading={loading}
+                        filter="all"
+                        search=""
+                        actionLoading={actionLoading}
+                        onAcknowledge={handleAcknowledge}
+                        onResolve={handleResolve}
+                        onViewTimeline={setTimelineAlertId}
+                    />
+                    {historyAlerts.length === 0 && !loading && (
+                        <div className="p-8 text-center text-slate-500 italic border border-slate-200 dark:border-white/10 rounded-xl bg-white dark:bg-slate-900">
+                            No resolved alerts
+                        </div>
+                    )}
+                </div>
+                {nextCursor && (
+                    <div className="mt-6 text-center">
+                        <button
+                            onClick={() => fetchAlerts(nextCursor)}
+                            disabled={loading}
+                            className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded shadow-sm transition-colors"
+                        >
+                            {loading ? "Loading..." : "Load More"}
+                        </button>
+                    </div>
+                )}
+            </section>
+
             {isAddRuleModalOpen && device && (
                 <AddRuleModal
                     deviceId={device.id}
@@ -420,6 +413,13 @@ export default function DeviceDetails() {
                     onCreated={(rule) => {
                         setRules(prev => [rule, ...prev]);
                     }}
+                />
+            )}
+
+            {timelineAlertId && (
+                <AlertTimelineDrawer
+                    alertId={timelineAlertId}
+                    onClose={() => setTimelineAlertId(null)}
                 />
             )}
         </div>

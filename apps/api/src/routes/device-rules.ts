@@ -18,8 +18,14 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
         if (!device) return reply.code(404).send({ error: 'Device not found' });
 
         if (request.user!.role === Role.SITE_ADMIN) {
-            if (!device.site_id || device.site_id !== request.user!.site_id) {
-                return reply.code(403).send({ error: "You don't have permission to view rules for this device." });
+            if (!device.site_id) {
+                return reply.code(403).send({ error: "You don't have permission to manage rules for this device." });
+            }
+            const userSite = await prisma.userSite.findUnique({
+                where: { user_id_site_id: { user_id: request.user!.id, site_id: device.site_id } }
+            });
+            if (!userSite) {
+                return reply.code(403).send({ error: "You don't have permission to manage rules for this device." });
             }
         }
 
@@ -30,6 +36,15 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
             },
             orderBy: {
                 created_at: 'desc'
+            },
+            include: {
+                recipients: {
+                    include: {
+                        user: {
+                            select: { id: true, email: true, name: true, role: true }
+                        }
+                    }
+                }
             }
         });
 
@@ -39,7 +54,7 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
     // POST /devices/:id/rules - Create a rule for a device
     fastify.post<{
         Params: { id: string },
-        Body: { metric: string, operator: Operator, threshold: number, duration_seconds: number, severity: DeviceStatusLevel, enabled: boolean }
+        Body: { metric: string, operator: Operator, threshold: number, duration_seconds: number, severity: DeviceStatusLevel, enabled: boolean, recipients: string[] }
     }>('/devices/:id/rules', {
         preHandler: [fastify.requireClientId, fastify.requireRole([Role.CLIENT_ADMIN, Role.SUPER_ADMIN, Role.SITE_ADMIN])]
     }, async (request, reply) => {
@@ -49,7 +64,7 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
             user: request.user ? { role: request.user.role, client_id: request.user.client_id } : null,
             clientId
         }, 'Creating rule for device');
-        const { metric, operator, threshold, duration_seconds, severity, enabled } = request.body;
+        const { metric, operator, threshold, duration_seconds, severity, enabled, recipients } = request.body;
 
         // Validation
         if (metric !== 'temperature') {
@@ -67,6 +82,16 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
         if (typeof duration_seconds !== 'number' || duration_seconds < 0) {
             return reply.code(400).send({ error: 'Duration seconds must be a positive integer' });
         }
+        if (!Array.isArray(recipients) || recipients.length === 0) {
+            return reply.code(400).send({ error: 'At least one recipient is required' });
+        }
+
+        const validUsers = await prisma.user.findMany({
+            where: { id: { in: recipients }, client_id: clientId, disabled_at: null }
+        });
+        if (validUsers.length !== recipients.length) {
+            return reply.code(400).send({ error: 'One or more recipients are invalid or not in this client' });
+        }
 
         const device = await prisma.device.findUnique({
             where: { id, client_id: clientId }
@@ -77,7 +102,13 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
         }
 
         if (request.user!.role === Role.SITE_ADMIN) {
-            if (!device.site_id || device.site_id !== request.user!.site_id) {
+            if (!device.site_id) {
+                return reply.code(403).send({ error: "You don't have permission to manage rules for this device." });
+            }
+            const userSite = await prisma.userSite.findUnique({
+                where: { user_id_site_id: { user_id: request.user!.id, site_id: device.site_id } }
+            });
+            if (!userSite) {
                 return reply.code(403).send({ error: "You don't have permission to manage rules for this device." });
             }
         }
@@ -92,7 +123,19 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
                     threshold,
                     duration_seconds,
                     severity,
-                    enabled: enabled ?? true
+                    enabled: enabled ?? true,
+                    recipients: {
+                        create: recipients.map(user_id => ({ user_id }))
+                    }
+                },
+                include: {
+                    recipients: {
+                        include: {
+                            user: {
+                                select: { id: true, email: true, name: true, role: true }
+                            }
+                        }
+                    }
                 }
             });
 
@@ -109,7 +152,7 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
     // PATCH /rules/:ruleId - Update a rule
     fastify.patch<{
         Params: { ruleId: string },
-        Body: { enabled?: boolean, threshold?: number, duration_seconds?: number, operator?: Operator, severity?: DeviceStatusLevel }
+        Body: { enabled?: boolean, threshold?: number, duration_seconds?: number, operator?: Operator, severity?: DeviceStatusLevel, recipients?: string[] }
     }>('/rules/:ruleId', {
         preHandler: [fastify.requireClientId, fastify.requireRole([Role.CLIENT_ADMIN, Role.SUPER_ADMIN, Role.SITE_ADMIN])]
     }, async (request, reply) => {
@@ -130,6 +173,18 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
         if (updates.threshold !== undefined && typeof updates.threshold !== 'number') {
             return reply.code(400).send({ error: 'Threshold must be a number' });
         }
+        if (updates.recipients !== undefined && (!Array.isArray(updates.recipients) || updates.recipients.length === 0)) {
+            return reply.code(400).send({ error: 'At least one recipient is required' });
+        }
+
+        if (updates.recipients) {
+            const validUsers = await prisma.user.findMany({
+                where: { id: { in: updates.recipients }, client_id: clientId, disabled_at: null }
+            });
+            if (validUsers.length !== updates.recipients.length) {
+                return reply.code(400).send({ error: 'One or more recipients are invalid or not in this client' });
+            }
+        }
 
         try {
             // Check ownership and scope FIRST before mutating
@@ -143,19 +198,42 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
             }
 
             if (request.user!.role === Role.SITE_ADMIN) {
-                if (!existing.device.site_id || existing.device.site_id !== request.user!.site_id) {
+                if (!existing.device.site_id) {
+                    return reply.code(403).send({ error: "You don't have permission to manage rules for this device." });
+                }
+                const userSite = await prisma.userSite.findUnique({
+                    where: { user_id_site_id: { user_id: request.user!.id, site_id: existing.device.site_id } }
+                });
+                if (!userSite) {
                     return reply.code(403).send({ error: "You don't have permission to manage rules for this device." });
                 }
             }
 
+            const updateData: any = { ...updates };
+            delete updateData.recipients;
+
+            // Prisma nested update for recipients
+            if (updates.recipients) {
+                updateData.recipients = {
+                    deleteMany: {},
+                    create: updates.recipients.map(id => ({ user_id: id }))
+                };
+            }
+
             const rule = await prisma.deviceAlarmRule.update({
                 where: {
-                    id: ruleId,
-                    client_id: clientId // Implicit scoping check via composite unique constraint if we had one, but we don't.
-                    // Wait, `prisma.deviceAlarmRule.update` on purely `id` might not check `client_id` immediately if not part of `where` unique fields.
-                    // So let's check first.
+                    id: ruleId
                 },
-                data: updates
+                data: updateData,
+                include: {
+                    recipients: {
+                        include: {
+                            user: {
+                                select: { id: true, email: true, name: true, role: true }
+                            }
+                        }
+                    }
+                }
             });
 
             return rule;
@@ -187,7 +265,13 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
         }
 
         if (request.user!.role === Role.SITE_ADMIN) {
-            if (!existing.device.site_id || existing.device.site_id !== request.user!.site_id) {
+            if (!existing.device.site_id) {
+                return reply.code(403).send({ error: "You don't have permission to manage rules for this device." });
+            }
+            const userSite = await prisma.userSite.findUnique({
+                where: { user_id_site_id: { user_id: request.user!.id, site_id: existing.device.site_id } }
+            });
+            if (!userSite) {
                 return reply.code(403).send({ error: "You don't have permission to manage rules for this device." });
             }
         }

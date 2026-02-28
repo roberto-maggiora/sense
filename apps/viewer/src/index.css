@@ -1,3 +1,37 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Global scrollbar adjustments */
+html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+    /* Slate-400 */
+}
+
+.dark html {
+    scrollbar-color: rgba(71, 85, 105, 0.5) transparent;
+    /* Slate-600 */
+}
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.5);
+    border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background-color: rgba(71, 85, 105, 0.5);
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}

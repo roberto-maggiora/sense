@@ -1,4 +1,24 @@
 services:
+  hawk-bridge:
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - ./emqxsl-ca.crt:/certs/emqxsl-ca.crt:ro
+    environment:
+      EMQX_HOST: ${EMQX_HOST}
+      EMQX_PORT: ${EMQX_PORT}
+      EMQX_USERNAME: ${EMQX_USERNAME}
+      EMQX_PASSWORD: ${EMQX_PASSWORD}
+      EMQX_CA_FILE: /certs/emqxsl-ca.crt
+      SENSE_INGEST_URL: http://api:3000/api/v1/ingest/hawk
+      SENSE_INGEST_KEY: dev-secret
+      TOPICS: ${HAWK_TOPICS}
+    depends_on:
+      api:
+        condition: service_healthy
+    command: sh -c "npm install mqtt@5 --no-save --silent && node scripts/hawk-bridge.js"
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -113,3 +133,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+

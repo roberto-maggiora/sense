@@ -26,8 +26,11 @@ model User {
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
 
-  client        Client?   @relation(fields: [client_id], references: [id])
-  site          Site?     @relation(fields: [site_id], references: [id])
+  client                   Client?                    @relation(fields: [client_id], references: [id])
+  site                     Site?                      @relation(fields: [site_id], references: [id])
+  user_sites               UserSite[]
+  DeviceAlarmRuleRecipient DeviceAlarmRuleRecipient[]
+  acknowledged_alerts      Alert[]                    @relation("AlertAcknowledgedByUser")
 
   @@index([client_id])
   @@index([site_id])
@@ -42,65 +45,86 @@ model Client {
   created_at  DateTime  @default(now())
   updated_at  DateTime  @default(now()) @updatedAt
 
-  users            User[]
-  sites            Site[]
-  devices          Device[]
+  users              User[]
+  sites              Site[]
+  devices            Device[]
   telemetry_events   TelemetryEvent[]
   alert_rules        AlertRule[]
   device_status      DeviceStatus[]
   device_alarm_rules DeviceAlarmRule[]
+  alerts             Alert[]
+  hubs               HubRegistry[]
 
   @@map("clients")
 }
 
 model Site {
-  id        String   @id @default(uuid())
-  client_id String
-  name      String
+  id          String    @id @default(uuid())
+  client_id   String
+  name        String
   disabled_at DateTime?
-  created_at DateTime @default(now())
+  created_at  DateTime  @default(now())
 
-  client    Client   @relation(fields: [client_id], references: [id])
-  areas     Area[]
-  devices   Device[]
-  users     User[]
+  client     Client     @relation(fields: [client_id], references: [id])
+  areas      Area[]
+  devices    Device[]
+  users      User[]
+  user_sites UserSite[]
 
   @@unique([client_id, name])
   @@map("sites")
 }
 
-model Area {
-  id        String   @id @default(uuid())
-  site_id   String
-  name      String
-  disabled_at DateTime?
+model UserSite {
+  id         String   @id @default(uuid())
+  user_id    String
+  site_id    String
   created_at DateTime @default(now())
 
-  site      Site     @relation(fields: [site_id], references: [id])
-  devices   Device[]
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  site Site @relation(fields: [site_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, site_id])
+  @@index([user_id])
+  @@index([site_id])
+  @@map("user_sites")
+}
+
+model Area {
+  id          String    @id @default(uuid())
+  site_id     String
+  name        String
+  disabled_at DateTime?
+  created_at  DateTime  @default(now())
+
+  site    Site     @relation(fields: [site_id], references: [id])
+  devices Device[]
 
   @@unique([site_id, name])
   @@map("areas")
 }
 
 model Device {
-  id             String    @id @default(uuid())
-  client_id      String
-  site_id        String?
-  area_id        String?
-  source         String?
-  external_id    String
-  name           String
-  disabled_at    DateTime?
-  created_at     DateTime  @default(now())
+  id           String    @id @default(uuid())
+  client_id    String
+  site_id      String?
+  area_id      String?
+  source       String?
+  external_id  String
+  name         String
+  manufacturer String?
+  model        String?
+  disabled_at  DateTime?
+  created_at   DateTime  @default(now())
 
-  client         Client    @relation(fields: [client_id], references: [id])
-  site           Site?     @relation(fields: [site_id], references: [id])
-  area           Area?     @relation(fields: [area_id], references: [id])
+  client Client @relation(fields: [client_id], references: [id])
+  site   Site?  @relation(fields: [site_id], references: [id])
+  area   Area?  @relation(fields: [area_id], references: [id])
 
   telemetry_events   TelemetryEvent[]
   device_status      DeviceStatus?
   device_alarm_rules DeviceAlarmRule[]
+  alerts             Alert[]
 
   @@unique([source, external_id])
   @@index([site_id])
@@ -120,12 +144,11 @@ model TelemetryEvent {
   payload         Json
   created_at      DateTime @default(now())
 
-  client          Client   @relation(fields: [client_id], references: [id])
-  device          Device   @relation(fields: [device_id], references: [id])
+  client Client @relation(fields: [client_id], references: [id])
+  device Device @relation(fields: [device_id], references: [id])
 
-
-  @@map("telemetry_events")
   @@index([device_id, occurred_at])
+  @@map("telemetry_events")
 }
 
 enum ScopeType {
@@ -168,15 +191,20 @@ enum DeviceStatusLevel {
   green
   amber
   red
+  offline
+  unknown
 }
 
 model DeviceStatus {
-  id        String            @id @default(uuid())
-  client_id String
-  device_id String            @unique
-  status    DeviceStatusLevel
-  reason    Json?
-  updated_at DateTime         @updatedAt
+  id                  String            @id @default(uuid())
+  client_id           String
+  device_id           String            @unique
+  status              DeviceStatusLevel
+  reason              Json?
+  battery_percent     Int?
+  battery_raw         Int?
+  battery_updated_at  DateTime?
+  updated_at          DateTime          @updatedAt
 
   client Client @relation(fields: [client_id], references: [id])
   device Device @relation(fields: [device_id], references: [id])
@@ -185,14 +213,14 @@ model DeviceStatus {
   @@map("device_status")
 }
 
-
 model NotificationOutbox {
-  id          String   @id @default(uuid())
-  client_id   String
-  device_id   String
-  rule_id     String?
-  message     String
-  created_at  DateTime @default(now())
+  id              String    @id @default(uuid())
+  client_id       String
+  device_id       String
+  rule_id         String?
+  message         String
+  recipients      Json?
+  created_at      DateTime  @default(now())
   acknowledged_at DateTime?
   acknowledged_by String?
   ack_consumed    Boolean   @default(false)
@@ -215,11 +243,171 @@ model DeviceAlarmRule {
   created_at       DateTime          @default(now())
   updated_at       DateTime          @updatedAt
 
-  client           Client            @relation(fields: [client_id], references: [id])
-  device           Device            @relation(fields: [device_id], references: [id])
+  client     Client                     @relation(fields: [client_id], references: [id])
+  device     Device                     @relation(fields: [device_id], references: [id])
+  recipients DeviceAlarmRuleRecipient[]
 
   @@unique([device_id, metric, severity])
   @@index([client_id, device_id])
   @@index([enabled])
   @@map("device_alarm_rules")
 }
+
+model DeviceAlarmRuleRecipient {
+  id         String   @id @default(uuid())
+  rule_id    String
+  user_id    String
+  created_at DateTime @default(now())
+
+  rule DeviceAlarmRule @relation(fields: [rule_id], references: [id], onDelete: Cascade)
+  user User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([rule_id, user_id])
+  @@index([rule_id])
+  @@index([user_id])
+  @@map("device_alarm_rule_recipients")
+}
+
+// -------------------------------------------------------
+// Alert State Machine
+// -------------------------------------------------------
+
+enum AlertStatus {
+  triggered
+  notified
+  acknowledged
+  snoozed
+  resolved
+  auto_resolved
+}
+
+enum AlertEventType {
+  created
+  triggered
+  notified
+  acknowledged
+  snoozed
+  resolved
+  auto_resolved
+  updated
+}
+
+model Alert {
+  id                String            @id @default(uuid())
+  client_id         String
+  device_id         String
+  rule_id           String?
+  parameter         String?           // 'battery' | 'temperature' | etc — null for rule-based alerts
+  severity          DeviceStatusLevel
+  status            AlertStatus       @default(triggered)
+  opened_at         DateTime
+  last_triggered_at     DateTime
+  acknowledged_at       DateTime?
+  acknowledged_by_user_id String?
+  snoozed_until     DateTime?
+  resolved_at       DateTime?
+  current_value     Float?
+  threshold         Float?
+  context_json      Json              @default("{}")
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+
+  client Client       @relation(fields: [client_id], references: [id])
+  device Device       @relation(fields: [device_id], references: [id])
+  acknowledged_by_user User? @relation("AlertAcknowledgedByUser", fields: [acknowledged_by_user_id], references: [id])
+  events AlertEvent[]
+
+  @@index([client_id, status])
+  @@index([device_id, status])
+  @@index([device_id, rule_id])
+  @@index([device_id, parameter, status])
+  @@map("alerts")
+}
+
+model AlertEvent {
+  id            String         @id @default(uuid())
+  alert_id      String
+  client_id     String
+  event_type    AlertEventType
+  actor_user_id String?
+  metadata_json Json           @default("{}")
+  created_at    DateTime       @default(now())
+
+  alert Alert @relation(fields: [alert_id], references: [id], onDelete: Cascade)
+
+  @@index([alert_id, created_at])
+  @@map("alert_events")
+}
+
+// -------------------------------------------------------
+// Notification Outbox v1
+// Table: notification_outbox_items (new; do NOT touch notifications_outbox legacy table)
+// -------------------------------------------------------
+
+enum NotificationOutboxStatus {
+  pending
+  claimed
+  delivered
+  failed
+}
+
+model NotificationOutboxItem {
+  id              String                   @id @default(uuid())
+  client_id       String
+  alert_id        String
+  channel         String                   @default("log")
+  payload         Json
+  status          NotificationOutboxStatus @default(pending)
+  idempotency_key String                   @unique
+  attempt_count   Int                      @default(0)
+  next_attempt_at DateTime?
+  last_error      String?
+  created_at      DateTime                 @default(now())
+  updated_at      DateTime                 @default(now())
+  delivered_at    DateTime?
+
+  @@index([status, next_attempt_at])
+  @@index([idempotency_key])
+  @@map("notification_outbox_items")
+}
+
+model HubRegistry {
+  id                String    @id @default(uuid())
+  client_id         String
+  serial            String
+  friendly_name     String?
+  fw                String?
+  last_heartbeat_at DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  client            Client    @relation(fields: [client_id], references: [id])
+
+  @@unique([client_id, serial])
+  @@index([client_id, last_heartbeat_at])
+  @@map("hub_registry")
+}
+
+// -------------------------------------------------------
+// Observability: Ingest Events
+// -------------------------------------------------------
+
+model IngestEvent {
+  id                 String   @id @default(cuid())
+  created_at         DateTime @default(now())
+  source             String
+  topic              String
+  client_id          String?
+  serial             String?
+  device_external_id String?
+  status             String
+  http_status        Int?
+  error_message      String?
+  meta_json          Json?
+
+  @@index([source, topic, created_at])
+  @@index([client_id, created_at])
+  @@index([status, created_at])
+  @@map("ingest_events")
+}
+

@@ -11,7 +11,7 @@ import { useMemo } from "react";
 
 type DataPoint = {
     timestamp: string;
-    value: number;
+    value: number | null;
 };
 
 type TelemetryChartProps = {
@@ -24,7 +24,8 @@ type TelemetryChartProps = {
 export default function TelemetryChart({ data, label, unit, color = "#3b82f6" }: TelemetryChartProps) {
     const stats = useMemo(() => {
         if (!data.length) return { min: 0, max: 0, avg: 0, last: 0 };
-        const values = data.map((d) => d.value);
+        const values = data.map((d) => d.value).filter((v): v is number => v != null);
+        if (!values.length) return { min: 0, max: 0, avg: 0, last: 0 };
         const min = Math.min(...values);
         const max = Math.max(...values);
         const avg = values.reduce((a, b) => a + b, 0) / values.length;

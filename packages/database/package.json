@@ -11,12 +11,14 @@
         "db:seed": "ts-node prisma/seed.ts"
     },
     "dependencies": {
-        "@prisma/client": "^5.10.2"
+        "@prisma/client": "^5.10.2",
+        "bcrypt": "^6.0.0"
     },
     "devDependencies": {
+        "@types/bcrypt": "^6.0.0",
+        "@types/node": "^20.11.24",
         "prisma": "^5.10.2",
-        "typescript": "^5.3.3",
         "ts-node": "^10.9.2",
-        "@types/node": "^20.11.24"
+        "typescript": "^5.3.3"
     }
 }

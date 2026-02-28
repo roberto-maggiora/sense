@@ -12,6 +12,8 @@ interface DeviceBody {
     site_id?: string;
     area_id?: string;
     name: string;
+    manufacturer?: string;
+    model?: string;
 }
 
 interface DeviceUpdateBody {
@@ -19,6 +21,8 @@ interface DeviceUpdateBody {
     site_id?: string | null;
     area_id?: string | null;
     disabled?: boolean;
+    manufacturer?: string | null;
+    model?: string | null;
     // Explicitly disallow client_id, source, external_id
     client_id?: never;
     source?: never;
@@ -77,10 +81,20 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
     // POST /devices
     fastify.post<{ Body: DeviceBody }>('/devices', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
         const clientId = request.clientId as string;
-        const { source, external_id, site_id, area_id, name } = request.body;
+        const { source, external_id, site_id, area_id, name, manufacturer, model } = request.body;
 
         if (!name || name.trim() === '') {
             reply.code(400).send({ error: 'name is required' });
+            return;
+        }
+
+        if (!source || source.trim() === '') {
+            reply.code(400).send({ error: 'source is required' });
+            return;
+        }
+
+        if (!external_id || external_id.trim() === '') {
+            reply.code(400).send({ error: 'external_id is required' });
             return;
         }
 
@@ -113,7 +127,9 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
                     external_id,
                     site_id,
                     area_id,
-                    name
+                    name,
+                    manufacturer,
+                    model
                 }
             });
             reply.code(201).send(device);
@@ -133,7 +149,7 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
         const clientId = request.clientId as string;
         const { id } = request.params;
         const body = request.body as any;
-        const { name, disabled } = request.body;
+        const { name, disabled, manufacturer, model } = request.body;
         let { site_id, area_id } = request.body; // Let as mutable
 
         if (body.client_id || body.source || body.external_id) {
@@ -213,7 +229,9 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
                     name,
                     disabled_at: disabled === true ? new Date() : (disabled === false ? null : undefined),
                     site_id,
-                    area_id
+                    area_id,
+                    manufacturer,
+                    model
                 }
             });
             return { data: updated };
