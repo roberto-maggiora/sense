@@ -85,6 +85,60 @@ async function main() {
     });
     console.log(`Seeded ${viewer.email} / admin123`);
 
+    // 6. Ensure "Test Client B" exists
+    let clientB = await prisma.client.findFirst({
+        where: { name: 'Test Client B' }
+    });
+
+    if (!clientB) {
+        clientB = await prisma.client.create({
+            data: {
+                name: 'Test Client B',
+                id: 'test-client-b'
+            }
+        });
+        console.log('Creating Test Client B...');
+    }
+
+    // 7. Upsert an explicit client admin user for Test Client B
+    const adminBEmail = normalizeEmail('adminB@sense.local');
+    const adminB = await prisma.user.upsert({
+        where: { email: adminBEmail },
+        update: {
+            password_hash,
+            role: 'CLIENT_ADMIN',
+            client_id: clientB.id,
+            disabled_at: null
+        },
+        create: {
+            client_id: clientB.id,
+            email: adminBEmail,
+            name: 'Client B Admin',
+            role: 'CLIENT_ADMIN',
+            password_hash
+        }
+    });
+    console.log(`Seeded ${adminB.email} / admin123`);
+
+    // 8. Upsert SUPER_ADMIN
+    const superAdminEmail = normalizeEmail('admin@sense.local');
+    const superAdmin = await prisma.user.upsert({
+        where: { email: superAdminEmail },
+        update: {
+            password_hash,
+            role: 'SUPER_ADMIN',
+            client_id: null,
+            disabled_at: null
+        },
+        create: {
+            email: superAdminEmail,
+            name: 'System Admin',
+            role: 'SUPER_ADMIN',
+            password_hash
+        }
+    });
+    console.log(`Seeded SUPER_ADMIN ${superAdmin.email} / admin123`);
+
     console.log('Seed completed successfully.');
 }
 

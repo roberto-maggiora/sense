@@ -11,3 +11,11 @@ emqxsl-ca.crt
 refactor_*.py
 test-*.ts
 scripts/test-*.sh
+*.tsbuildinfo
+data-
+metrics
+payload
+raw-
+output.json
+test-api-*.js
+test-viewer.js

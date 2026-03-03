@@ -18,6 +18,8 @@ export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleMo
     const [operator, setOperator] = useState<'gt' | 'lt'>('gt');
     const [threshold, setThreshold] = useState<number>(30);
     const [durationMinutes, setDurationMinutes] = useState<number>(5);
+    const [reminderInterval, setReminderInterval] = useState<number | ''>('');
+    const [reminderMaxCount, setReminderMaxCount] = useState<number | ''>('');
     const [enabled, setEnabled] = useState(true);
 
     useEffect(() => {
@@ -43,6 +45,8 @@ export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleMo
                 duration_seconds: durationMinutes * 60,
                 severity: 'red',
                 enabled,
+                reminder_interval_minutes: reminderInterval === '' ? null : reminderInterval,
+                reminder_max_count: reminderMaxCount === '' ? null : reminderMaxCount,
                 recipients
             });
             onCreated(rule);
@@ -111,6 +115,31 @@ export default function AddRuleModal({ deviceId, onClose, onCreated }: AddRuleMo
                                 required
                                 value={durationMinutes}
                                 onChange={e => setDurationMinutes(parseInt(e.target.value))}
+                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-900 dark:text-white"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Reminder Interval (Mins)</label>
+                            <input
+                                type="number"
+                                min="1"
+                                placeholder="Defaults to rule delay"
+                                value={reminderInterval}
+                                onChange={e => setReminderInterval(e.target.value === '' ? '' : parseInt(e.target.value))}
+                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-900 dark:text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Max Reminders</label>
+                            <input
+                                type="number"
+                                min="1"
+                                placeholder="Unlimited"
+                                value={reminderMaxCount}
+                                onChange={e => setReminderMaxCount(e.target.value === '' ? '' : parseInt(e.target.value))}
                                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-900 dark:text-white"
                             />
                         </div>

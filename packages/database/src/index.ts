@@ -8,3 +8,5 @@ export * from './utils/battery';
 export * from './batteryAlertService';
 export * from './hubRegistryService';
 export * from './ingestEventService';
+export * from './reminderService';
+export * from './correctiveActionService';

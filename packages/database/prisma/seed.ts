@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { PrismaClient, Role } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
@@ -7,13 +7,9 @@ async function main() {
 
     // Clean up existing data for idempotency
     try {
-        await prisma.device.deleteMany();
-        await prisma.area.deleteMany();
-        await prisma.site.deleteMany();
-        await prisma.user.deleteMany();
-        await prisma.client.deleteMany();
-    } catch (e) {
-        console.warn("Error cleaning up data, proceeding...", e);
+        await prisma.$executeRawUnsafe(`TRUNCATE TABLE "Client", "User", "Site", "Area", "Device", "Alert", "AlertEvent", "CorrectiveAction", "DeviceAlarmRule", "DeviceAlarmRuleRecipient", "TelemetryEventV1", "Hub" CASCADE;`);
+    } catch (e: any) {
+        console.warn("Error cleaning up data, proceeding...", e.message);
     }
 
     // 1. Create Client A (Has Site + Area)
@@ -57,7 +53,7 @@ async function main() {
             email: 'admin@sense.local',
             name: 'System Admin',
             password_hash: passwordHash,
-            role: Role.SUPER_ADMIN
+            role: 'SUPER_ADMIN'
         }
     });
 
@@ -69,6 +65,17 @@ async function main() {
     console.log(`  Area ID: ${areaA.id}`);
     console.log(`Client B (${clientB.name}): ${clientB.id}`);
     console.log('------------------------------------------------');
+
+    const cadminB = await prisma.user.create({
+        data: {
+            client_id: clientB.id,
+            email: 'adminB@sense.local',
+            name: 'Client B Admin',
+            role: 'CLIENT_ADMIN',
+            password_hash: passwordHash
+        }
+    });
+    console.log(`Client B Admin user created: ${cadminB.email}`);
 
     // Create a device for Client A
     const device = await prisma.device.create({

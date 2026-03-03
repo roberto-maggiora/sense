@@ -5,6 +5,7 @@ export interface AlarmEvaluationResult {
     isViolated: boolean;
     duration: number;
     latestValue: number | undefined;
+    since?: string;
 }
 
 // Helper to compare values
@@ -98,6 +99,7 @@ export function evaluateAlarmRule(rule: DeviceAlarmRule, events: TelemetryEvent[
         ruleId: rule.id,
         isViolated: durationSeconds >= rule.duration_seconds,
         duration: durationSeconds,
-        latestValue: latestValue
+        latestValue: latestValue,
+        since: new Date(oldestBreachTime).toISOString()
     };
 }

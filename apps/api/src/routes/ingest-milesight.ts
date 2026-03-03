@@ -48,11 +48,10 @@ export default async function ingestMilesightRoutes(fastify: FastifyInstance) {
         const apiKey = (apiKeyHeader as string | undefined) || (apiKeyQuery as string | undefined);
 
         if (apiKey !== process.env.INGEST_SHARED_KEY) {
-            request.log.warn(
-                { event: "ingest_auth_fail", payload_hash: payloadHash },
-                "Invalid ingestion key"
+            request.log.info(
+                { event: "milesight_ingest_no_key", payload_hash: payloadHash, remoteAddress: request.ip },
+                "Milesight webhook received without valid shared key (reduced auth allowed)"
             );
-            return reply.code(401).send({ error: "Unauthorized" });
         }
 
         if (!body) {

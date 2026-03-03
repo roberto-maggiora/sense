@@ -31,6 +31,7 @@ model User {
   user_sites               UserSite[]
   DeviceAlarmRuleRecipient DeviceAlarmRuleRecipient[]
   acknowledged_alerts      Alert[]                    @relation("AlertAcknowledgedByUser")
+  corrective_actions       CorrectiveAction[]
 
   @@index([client_id])
   @@index([site_id])
@@ -53,6 +54,7 @@ model Client {
   device_status      DeviceStatus[]
   device_alarm_rules DeviceAlarmRule[]
   alerts             Alert[]
+  corrective_actions CorrectiveAction[]
   hubs               HubRegistry[]
 
   @@map("clients")
@@ -62,6 +64,7 @@ model Site {
   id          String    @id @default(uuid())
   client_id   String
   name        String
+  timezone    String?
   disabled_at DateTime?
   created_at  DateTime  @default(now())
 
@@ -240,6 +243,8 @@ model DeviceAlarmRule {
   duration_seconds Int               @default(0)
   severity         DeviceStatusLevel
   enabled          Boolean           @default(true)
+  reminder_interval_minutes Int?
+  reminder_max_count        Int?
   created_at       DateTime          @default(now())
   updated_at       DateTime          @updatedAt
 
@@ -247,7 +252,7 @@ model DeviceAlarmRule {
   device     Device                     @relation(fields: [device_id], references: [id])
   recipients DeviceAlarmRuleRecipient[]
 
-  @@unique([device_id, metric, severity])
+  @@unique([device_id, metric, operator])
   @@index([client_id, device_id])
   @@index([enabled])
   @@map("device_alarm_rules")
@@ -309,6 +314,8 @@ model Alert {
   current_value     Float?
   threshold         Float?
   context_json      Json              @default("{}")
+  last_reminded_at  DateTime?
+  reminder_count    Int               @default(0)
   created_at        DateTime          @default(now())
   updated_at        DateTime          @updatedAt
 
@@ -316,6 +323,7 @@ model Alert {
   device Device       @relation(fields: [device_id], references: [id])
   acknowledged_by_user User? @relation("AlertAcknowledgedByUser", fields: [acknowledged_by_user_id], references: [id])
   events AlertEvent[]
+  corrective_actions CorrectiveAction[]
 
   @@index([client_id, status])
   @@index([device_id, status])
@@ -337,6 +345,28 @@ model AlertEvent {
 
   @@index([alert_id, created_at])
   @@map("alert_events")
+}
+
+// -------------------------------------------------------
+// Corrective Actions
+// -------------------------------------------------------
+
+model CorrectiveAction {
+  id                 String   @id @default(uuid())
+  alert_id           String
+  client_id          String
+  created_at         DateTime @default(now())
+  created_by_user_id String?
+  action_text        String   @db.VarChar(2000)
+  meta_json          Json?    @default("{}")
+
+  alert              Alert    @relation(fields: [alert_id], references: [id], onDelete: Cascade)
+  client             Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  created_by_user    User?    @relation(fields: [created_by_user_id], references: [id], onDelete: SetNull)
+
+  @@index([alert_id, created_at])
+  @@index([client_id, created_at])
+  @@map("corrective_actions")
 }
 
 // -------------------------------------------------------

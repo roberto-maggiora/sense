@@ -72,6 +72,7 @@ export interface Site {
     id: string;
     client_id: string;
     name: string;
+    timezone?: string | null;
     disabled_at?: string | null;
     created_at: string;
     areas?: Area[];
@@ -83,14 +84,14 @@ export async function listSites(includeDisabled = false): Promise<Site[]> {
     return res.data;
 }
 
-export async function createSite(name: string): Promise<Site> {
+export async function createSite(name: string, timezone?: string | null): Promise<Site> {
     return fetchClient('/api/v1/sites', {
         method: 'POST',
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, timezone })
     });
 }
 
-export async function updateSite(id: string, updates: { name?: string; disabled?: boolean }): Promise<Site> {
+export async function updateSite(id: string, updates: { name?: string; timezone?: string | null; disabled?: boolean }): Promise<Site> {
     return fetchClient(`/api/v1/sites/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(updates)
@@ -330,11 +331,13 @@ export interface DeviceAlarmRule {
     id: string;
     device_id: string;
     metric: string;
-    operator: 'gt' | 'lt';
+    operator: 'gt' | 'lt' | 'gte' | 'lte';
     threshold: number;
     duration_seconds: number;
     severity: 'amber' | 'red';
     enabled: boolean;
+    reminder_interval_minutes?: number | null;
+    reminder_max_count?: number | null;
     recipients?: { user: { id: string, email: string, name: string | null, role: string } }[];
     created_at: string;
     updated_at: string;

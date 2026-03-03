@@ -1,7 +1,9 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
+import { formatTemperature } from '../lib/format';
 import { fetchClient } from "../lib/api";
 import { AlertTimelineDrawer } from "../components/AlertTimelineDrawer";
+import ResolveAlertModal from "../components/ResolveAlertModal";
 
 // ─── API types matching Alert State Machine v1 ───────────────────────────────
 
@@ -33,6 +35,7 @@ export type ApiAlert = {
     context_json: Record<string, unknown>;
     created_at: string;
     device: { id: string; name: string } | null;
+    corrective_actions?: { action_text: string }[];
 };
 
 // ─── Display helpers ─────────────────────────────────────────────────────────
@@ -70,6 +73,12 @@ function deriveDetails(a: ApiAlert): string {
     // This string version is only used for search matching.
     if (a.parameter === 'battery') {
         return `Battery low (${a.current_value}%)`;
+    }
+    if (a.parameter === 'temperature') {
+        const ctx = a.context_json ?? {};
+        const operator = (ctx.operator as string | undefined) ?? null;
+        const threshold = a.threshold ?? (ctx.threshold as number | undefined) ?? null;
+        return `Threshold breached: ${formatTemperature(a.current_value)}°C (Expected ${operator === 'gt' ? '<' : '>'}${threshold}°C)`;
     }
 
     const ctx = a.context_json ?? {};
@@ -174,13 +183,22 @@ export function AlertsTable({
 
         if (a.status === 'triggered' || a.status === 'notified') {
             return (
-                <button
-                    onClick={() => onAcknowledge(a.id)}
-                    disabled={busy}
-                    className="text-xs font-medium text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition-colors disabled:opacity-50"
-                >
-                    {busy ? '…' : 'Acknowledge'}
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => onAcknowledge(a.id)}
+                        disabled={busy}
+                        className="text-xs font-medium text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition-colors disabled:opacity-50"
+                    >
+                        {busy ? '…' : 'Acknowledge'}
+                    </button>
+                    <button
+                        onClick={() => onResolve(a.id)}
+                        disabled={busy}
+                        className="text-xs font-medium text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 transition-colors disabled:opacity-50"
+                    >
+                        {busy ? '…' : 'Resolve'}
+                    </button>
+                </div>
             );
         }
 
@@ -320,8 +338,14 @@ export function AlertsTable({
                                         </div>
                                     )}
                                 </td>
-                                <td className="px-4 py-3 w-[120px]">
-                                    <span className="text-sm text-gray-400 italic">Coming soon</span>
+                                <td className="px-4 py-3 w-[200px] text-xs">
+                                    {a.corrective_actions && a.corrective_actions.length > 0 ? (
+                                        <span className="text-slate-600 dark:text-slate-300 italic cursor-default" title={a.corrective_actions[0].action_text}>
+                                            {a.corrective_actions[0].action_text.length > 50 ? a.corrective_actions[0].action_text.substring(0, 50) + '…' : a.corrective_actions[0].action_text}
+                                        </span>
+                                    ) : (
+                                        <span className="text-slate-400 dark:text-slate-500 select-none">—</span>
+                                    )}
                                 </td>
                                 <td className="px-4 py-3 w-[120px] whitespace-nowrap">{renderStatusPill(a)}</td>
                                 <td className="px-4 py-3 w-[120px] text-right whitespace-nowrap">
@@ -353,6 +377,7 @@ export default function Alerts() {
     const [search, setSearch] = useState('');
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [timelineAlertId, setTimelineAlertId] = useState<string | null>(null);
+    const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null);
 
     const fetchAlerts = useCallback(async (cursor?: string, currentFilter: FilterType = filter) => {
         try {
@@ -403,23 +428,17 @@ export default function Alerts() {
         }
     };
 
-    const handleResolve = async (id: string) => {
-        const original = [...alerts];
+    const handleResolve = (id: string) => {
+        setResolvingAlertId(id);
+    };
+
+    const handleResolveSuccess = (id: string) => {
         setAlerts(prev => prev.map(a => a.id === id
             ? { ...a, status: 'resolved' as AlertStatus, resolved_at: new Date().toISOString() }
             : a
         ));
-        setActionLoading(id);
-        try {
-            await fetchClient(`/api/v1/alerts/${id}/resolve`, { method: 'POST', body: '{}' });
-        } catch {
-            setAlerts(original);
-            window.alert('Failed to resolve alert. Please try again.');
-        } finally {
-            setActionLoading(null);
-        }
+        setResolvingAlertId(null);
     };
-
 
 
 
@@ -556,6 +575,14 @@ export default function Alerts() {
                 <AlertTimelineDrawer
                     alertId={timelineAlertId}
                     onClose={() => setTimelineAlertId(null)}
+                />
+            )}
+
+            {resolvingAlertId && (
+                <ResolveAlertModal
+                    alertId={resolvingAlertId}
+                    onClose={() => setResolvingAlertId(null)}
+                    onSuccess={handleResolveSuccess}
                 />
             )}
         </div>

@@ -8,10 +8,12 @@ interface SiteParams {
 
 interface SiteBody {
     name: string;
+    timezone?: string | null;
 }
 
 interface SiteUpdateBody {
     name?: string;
+    timezone?: string | null;
     disabled?: boolean;
 }
 
@@ -56,7 +58,8 @@ export default async function siteRoutes(fastify: FastifyInstance) {
             const site = await prisma.site.create({
                 data: {
                     client_id: clientId,
-                    name: name.trim()
+                    name: name.trim(),
+                    timezone: request.body.timezone || null
                 }
             });
             reply.code(201).send(site);
@@ -89,6 +92,7 @@ export default async function siteRoutes(fastify: FastifyInstance) {
                 where: { id },
                 data: {
                     name: name ? name.trim() : undefined,
+                    timezone: request.body.timezone !== undefined ? request.body.timezone : undefined,
                     disabled_at: disabled === true ? new Date() : (disabled === false ? null : undefined)
                 }
             });

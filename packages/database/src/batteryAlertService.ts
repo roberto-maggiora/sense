@@ -143,6 +143,9 @@ export async function listDevicesNeedingBatteryReplacement(
             client_id: clientId,
             parameter: BATTERY_ALERT_PARAMETER,
             status: { in: ['triggered', 'notified', 'acknowledged', 'snoozed'] },
+            device: {
+                disabled_at: null
+            }
         },
         include: {
             device: {

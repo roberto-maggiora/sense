@@ -9,6 +9,21 @@ type AlertEvent = {
     metadata_json: any;
 };
 
+type CorrectiveAction = {
+    id: string;
+    action_text: string;
+    created_at: string;
+    created_by_user?: {
+        id: string;
+        name: string;
+        email: string;
+    } | null;
+};
+
+type TimelineItem =
+    | { type: 'event'; data: AlertEvent; date: Date }
+    | { type: 'corrective_action'; data: CorrectiveAction; date: Date };
+
 type AlertContextInfo = {
     id: string;
     name: string;
@@ -233,6 +248,29 @@ function AlertEventItem({ evt, isLast }: { evt: AlertEvent; isLast: boolean }) {
     );
 }
 
+function CorrectiveActionItem({ action, isLast }: { action: CorrectiveAction; isLast: boolean }) {
+    return (
+        <div className={`relative pl-6 ${!isLast ? 'border-l-2 border-slate-200 dark:border-slate-700 pb-6' : 'pb-2'}`}>
+            <div className={`absolute w-2.5 h-2.5 rounded-full -left-[6px] top-1.5 ring-4 ring-white dark:ring-slate-900 bg-purple-500`} />
+            <div className="flex flex-col">
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight flex items-center gap-2">
+                    Corrective Action
+                    <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                        {displayName(action.created_by_user) || 'System'}
+                    </span>
+                </span>
+                <span className="text-xs text-slate-500 mt-0.5 mb-2">
+                    {formatDateTime(action.created_at)}
+                </span>
+
+                <div className="text-sm text-slate-700 dark:text-slate-300 bg-purple-50 dark:bg-purple-900/20 px-3 py-2 rounded-lg border border-purple-100 dark:border-purple-500/20 whitespace-pre-wrap">
+                    {action.action_text}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export function AlertTimelineDrawer({
     alertId,
     onClose
@@ -242,6 +280,7 @@ export function AlertTimelineDrawer({
 }) {
     const [alertDetail, setAlertDetail] = useState<AlertDetail | null>(null);
     const [events, setEvents] = useState<AlertEvent[]>([]);
+    const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
@@ -252,13 +291,26 @@ export function AlertTimelineDrawer({
             setError(null);
 
             // Fetch both in parallel
-            const [alrt, evts] = await Promise.all([
+            const [alrt, evtsPayload] = await Promise.all([
                 fetchClient(`/api/v1/alerts/${alertId}`),
                 fetchClient(`/api/v1/alerts/${alertId}/events`)
             ]);
 
             setAlertDetail(alrt);
-            setEvents(evts.events || []);
+
+            const rawEvents: AlertEvent[] = evtsPayload.events || [];
+            const rawCorrectiveActions: CorrectiveAction[] = evtsPayload.corrective_actions || [];
+
+            setEvents(rawEvents);
+
+            const combined: TimelineItem[] = [
+                ...rawEvents.map(e => ({ type: 'event' as const, data: e, date: new Date(e.created_at) })),
+                ...rawCorrectiveActions.map(ca => ({ type: 'corrective_action' as const, data: ca, date: new Date(ca.created_at) }))
+            ];
+
+            combined.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+            setTimelineItems(combined);
         } catch (err: any) {
             setError(err.message || 'Failed to load alert details');
         } finally {
@@ -426,7 +478,7 @@ export function AlertTimelineDrawer({
                         <div>
                             <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400 mb-4 px-1">Audit Timeline</h3>
 
-                            {events.length === 0 ? (
+                            {timelineItems.length === 0 ? (
                                 <div className="bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-white/10 p-6 flex flex-col items-center justify-center text-center opacity-70">
                                     <svg className="w-8 h-8 text-slate-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -435,13 +487,14 @@ export function AlertTimelineDrawer({
                                 </div>
                             ) : (
                                 <div className="py-2 pl-2">
-                                    {events.map((evt, idx) => (
-                                        <AlertEventItem
-                                            key={evt.id}
-                                            evt={evt}
-                                            isLast={idx === events.length - 1}
-                                        />
-                                    ))}
+                                    {timelineItems.map((item, idx) => {
+                                        const isLast = idx === timelineItems.length - 1;
+                                        if (item.type === 'event') {
+                                            return <AlertEventItem key={`evt-${item.data.id}`} evt={item.data} isLast={isLast} />;
+                                        } else {
+                                            return <CorrectiveActionItem key={`ca-${item.data.id}`} action={item.data} isLast={isLast} />;
+                                        }
+                                    })}
                                 </div>
                             )}
                         </div>

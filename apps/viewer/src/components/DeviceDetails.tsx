@@ -6,6 +6,8 @@ import { useAuth } from "../lib/auth";
 import AddRuleModal from "./AddRuleModal";
 import { AlertsTable, type ApiAlert, formatDateTime } from "../pages/Alerts";
 import { AlertTimelineDrawer } from "./AlertTimelineDrawer";
+import ResolveAlertModal from "./ResolveAlertModal";
+import { formatTemperature } from "../lib/format";
 
 type Device = {
     id: string;
@@ -17,6 +19,7 @@ type Device = {
     current_status: { status: string } | null;
     latest_telemetry: { occurred_at: string } | null;
     metrics: { temperature?: number | null; humidity?: number | null; battery_percent?: number | null };
+    available_metrics?: string[];
 };
 
 function LocationAssignment({ device, onAssign }: { device: Device | null, onAssign: () => void }) {
@@ -115,6 +118,7 @@ export default function DeviceDetails() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [timelineAlertId, setTimelineAlertId] = useState<string | null>(null);
+    const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null);
 
 
     // Fetch Device Details
@@ -188,20 +192,16 @@ export default function DeviceDetails() {
         }
     };
 
-    const handleResolve = async (alertId: string) => {
-        const original = [...alerts];
+    const handleResolve = (alertId: string) => {
+        setResolvingAlertId(alertId);
+    };
+
+    const handleResolveSuccess = (alertId: string) => {
         setAlerts(prev => prev.map(a => a.id === alertId
             ? { ...a, status: 'resolved', resolved_at: new Date().toISOString() } as ApiAlert
             : a
         ));
-        setActionLoading(alertId);
-        try {
-            await fetchClient(`/api/v1/alerts/${alertId}/resolve`, { method: 'POST', body: '{}' });
-        } catch {
-            setAlerts(original);
-        } finally {
-            setActionLoading(null);
-        }
+        setResolvingAlertId(null);
     };
 
     const openAlerts = alerts.filter(a => !['resolved', 'auto_resolved'].includes(a.status));
@@ -264,8 +264,8 @@ export default function DeviceDetails() {
                     )}
 
                     <div className="flex items-center gap-3 shrink-0 border-l border-slate-200 dark:border-white/10 pl-6">
-                        <div className="text-xl font-semibold text-slate-900 dark:text-slate-200">
-                            {device?.metrics?.temperature != null ? `${device.metrics.temperature}°C` : '—'}
+                        <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+                            {device?.metrics?.temperature != null ? `${formatTemperature(device.metrics.temperature)}°C` : '—'}
                         </div>
                         {device?.source !== 'hawk' && (
                             <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -281,7 +281,7 @@ export default function DeviceDetails() {
                 <div className="lg:col-span-2 space-y-8">
 
                     {/* Telemetry Chart Card */}
-                    {id && <TemperatureHistoryCard deviceId={id} />}
+                    {id && <TemperatureHistoryCard deviceId={id} availableMetrics={device?.available_metrics} />}
 
                 </div>
 
@@ -420,6 +420,14 @@ export default function DeviceDetails() {
                 <AlertTimelineDrawer
                     alertId={timelineAlertId}
                     onClose={() => setTimelineAlertId(null)}
+                />
+            )}
+
+            {resolvingAlertId && (
+                <ResolveAlertModal
+                    alertId={resolvingAlertId}
+                    onClose={() => setResolvingAlertId(null)}
+                    onSuccess={handleResolveSuccess}
                 />
             )}
         </div>

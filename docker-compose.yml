@@ -15,6 +15,7 @@ services:
       SENSE_INGEST_URL: http://api:3000/api/v1/ingest/hawk
       SENSE_INGEST_KEY: dev-secret
       TOPICS: ${HAWK_TOPICS}
+
     depends_on:
       api:
         condition: service_healthy
@@ -93,6 +94,11 @@ services:
       REDIS_URL: redis://redis:6379
       PORT: 3001
       JWT_SECRET: ${JWT_SECRET:-fallback-secret-for-dev-only}
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: 587
+      SMTP_USER: roberto@senseapplications.com
+      SMTP_PASS: "efimvksngmoafbuz"
+      SMTP_FROM: "Sense Alerts <roberto@senseapplications.com>"
     env_file:
       - .env
     depends_on:

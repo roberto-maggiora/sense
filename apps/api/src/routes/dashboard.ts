@@ -32,14 +32,18 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                     SUM(CASE WHEN effective_status = 'amber' THEN 1 ELSE 0 END)::int as amber,
                     SUM(CASE WHEN effective_status = 'green' THEN 1 ELSE 0 END)::int as green,
                     SUM(CASE WHEN effective_status = 'offline' THEN 1 ELSE 0 END)::int as offline,
+                    SUM(open_alerts_count)::int as open_alerts,
                     MAX(last_seen) as last_telemetry_at
                 FROM (
                     SELECT
                         d.id,
                         t.occurred_at as last_seen,
+                        a.open_alerts_count,
                         CASE
                             WHEN t.occurred_at < NOW() - INTERVAL '30 minutes' OR t.occurred_at IS NULL THEN 'offline'
-                            ELSE s.status::text
+                            WHEN s.status = 'red' THEN 'red'
+                            WHEN s.status = 'amber' THEN 'amber'
+                            ELSE 'green'
                         END as effective_status
                     FROM "devices" d
                     LEFT JOIN "device_status" s ON d.id = s.device_id
@@ -50,6 +54,13 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                         ORDER BY occurred_at DESC
                         LIMIT 1
                     ) t ON true
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(*)::int as open_alerts_count
+                        FROM "alerts"
+                        WHERE device_id = d.id 
+                          AND status IN ('triggered', 'acknowledged', 'notified')
+                          AND resolved_at IS NULL
+                    ) a ON true
                     WHERE ${whereClause}
                 ) as derived
             `;
@@ -63,7 +74,7 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                 amber: row.amber || 0,
                 green: row.green || 0,
                 offline: row.offline || 0,
-                open_alerts: 0, // Stub for Issue 14
+                open_alerts: row.open_alerts || 0,
                 last_telemetry_at: row.last_telemetry_at || null
             };
 
@@ -121,25 +132,50 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
         const sql = `
             SELECT 
                 d.id, d.client_id, d.site_id, d.area_id, d.source, d.external_id, d.name, d.disabled_at, d.created_at,
-                s.status, s.reason, s.updated_at as status_updated_at,
+                COALESCE(s.status::text, 'green') as status, 
+                s.reason, 
+                s.updated_at as status_updated_at,
                 s.battery_percent, s.battery_raw, s.battery_updated_at,
-                t.payload as last_telemetry, t.occurred_at as last_telemetry_at,
+                t.recent_telemetry,
                 site.name as site_name,
-                area.name as area_name
+                site.timezone as site_timezone,
+                area.name as area_name,
+                (CASE WHEN a.highest_severity IS NOT NULL THEN true ELSE false END) as has_alert
             FROM "devices" d
             LEFT JOIN "device_status" s ON d.id = s.device_id
             LEFT JOIN "sites" site ON d.site_id = site.id
             LEFT JOIN "areas" area ON d.area_id = area.id
             LEFT JOIN LATERAL (
-                SELECT payload, occurred_at 
-                FROM "telemetry_events"
-                WHERE device_id = d.id
-                ORDER BY occurred_at DESC
-                LIMIT 1
+                SELECT 
+                    json_agg(
+                        json_build_object(
+                            'payload', payload,
+                            'occurred_at', GREATEST(occurred_at, received_at)
+                        )
+                    ) as recent_telemetry
+                FROM (
+                    SELECT payload, occurred_at, received_at
+                    FROM "telemetry_events"
+                    WHERE device_id = d.id
+                    ORDER BY GREATEST(occurred_at, received_at) DESC
+                    LIMIT 50
+                ) sub
             ) t ON true
+            LEFT JOIN LATERAL (
+                SELECT 
+                    CASE 
+                        WHEN COUNT(CASE WHEN severity = 'red' THEN 1 END) > 0 THEN 'red' 
+                        WHEN COUNT(CASE WHEN severity = 'amber' THEN 1 END) > 0 THEN 'amber' 
+                        ELSE NULL 
+                    END as highest_severity
+                FROM "alerts"
+                WHERE device_id = d.id 
+                  AND status IN ('triggered', 'acknowledged', 'notified')
+                  AND resolved_at IS NULL
+            ) a ON true
             WHERE ${whereClause}
             ORDER BY
-                CASE s.status
+                CASE COALESCE(s.status::text, 'green')
                     WHEN 'red' THEN 1
                     WHEN 'amber' THEN 2
                     WHEN 'green' THEN 3
@@ -154,29 +190,85 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
 
             // Map results to cleaner JSON structure
             const results = (rawResults as any[]).map(row => {
-                const isOffline =
-                    !row.last_telemetry_at ||
-                    new Date(row.last_telemetry_at).getTime() <
-                    Date.now() - 30 * 60 * 1000;
-
                 let tempVal: number | null = null;
                 let humVal: number | null = null;
+                let batteryVal: number | null = null;
+                let lastOccurredAt: string | null = null;
+                let latestPayload: any = null;
+                let availableMetrics: string[] = [];
 
-                if (row.last_telemetry) {
-                    const payload = typeof row.last_telemetry === 'string'
-                        ? JSON.parse(row.last_telemetry)
-                        : row.last_telemetry;
+                if (row.recent_telemetry) {
+                    const telemetryArray = typeof row.recent_telemetry === 'string'
+                        ? JSON.parse(row.recent_telemetry)
+                        : row.recent_telemetry;
 
-                    // Support both payload.metrics and payload.raw for different structures
-                    const metricsArray = payload.metrics || payload.raw?.metrics;
+                    if (Array.isArray(telemetryArray) && telemetryArray.length > 0) {
+                        lastOccurredAt = telemetryArray[0].occurred_at;
+                        latestPayload = telemetryArray[0].payload;
 
-                    if (Array.isArray(metricsArray)) {
-                        const t = metricsArray.find((m: any) => m?.parameter === 'temperature');
-                        const h = metricsArray.find((m: any) => m?.parameter === 'humidity');
-                        if (t && typeof t.value === 'number') tempVal = t.value;
-                        if (h && typeof h.value === 'number') humVal = h.value;
+                        for (const event of telemetryArray) {
+                            const payload = event.payload;
+                            if (!payload) continue;
+
+                            const metricsArray = payload.metrics || payload.raw?.metrics;
+
+                            if (Array.isArray(metricsArray)) {
+                                if (tempVal === null) {
+                                    const t = metricsArray.find((m: any) => m?.parameter === 'temperature');
+                                    if (t && typeof t.value === 'number') tempVal = t.value;
+                                }
+                                if (humVal === null) {
+                                    const h = metricsArray.find((m: any) => m?.parameter === 'humidity');
+                                    if (h && typeof h.value === 'number') humVal = h.value;
+                                }
+                                if (batteryVal === null) {
+                                    const b = metricsArray.find((m: any) => m?.parameter === 'battery');
+                                    if (b && typeof b.value === 'number') batteryVal = b.value;
+                                }
+                            }
+
+                            // Fallbacks
+                            if (tempVal === null && typeof payload.temperature === 'number') tempVal = payload.temperature;
+                            if (humVal === null && typeof payload.humidity === 'number') humVal = payload.humidity;
+                            if (batteryVal === null && typeof payload.battery === 'number') batteryVal = payload.battery;
+                            if (batteryVal === null && typeof payload.raw?.data?.payload?.battery === 'number') batteryVal = payload.raw.data.payload.battery;
+                            if (batteryVal === null && typeof payload.raw?.payload?.battery === 'number') batteryVal = payload.raw.payload.battery;
+
+                            if (tempVal !== null && humVal !== null && batteryVal !== null) {
+                                // Keep going to extract all available metrics?
+                                // Actually we still need to collect unique metrics
+                            }
+                        }
+
+                        // Second pass or integrated pass to collect all available metrics
+                        const metricSet = new Set<string>();
+                        for (const event of telemetryArray) {
+                            const payload = event.payload;
+                            if (!payload) continue;
+                            const metricsArray = payload.metrics || payload.raw?.metrics;
+                            if (Array.isArray(metricsArray)) {
+                                for (const m of metricsArray) {
+                                    if (m?.parameter && !m.parameter.includes('battery')) {
+                                        metricSet.add(m.parameter);
+                                    }
+                                }
+                            }
+                            // Fallbacks
+                            if (typeof payload.temperature === 'number') metricSet.add('temperature');
+                            if (typeof payload.humidity === 'number') metricSet.add('humidity');
+                        }
+
+                        const allMetrics = Array.from(metricSet);
+                        const hasTemp = allMetrics.includes('temperature');
+                        const otherMetrics = allMetrics.filter(m => m !== 'temperature').sort();
+                        availableMetrics = hasTemp ? ['temperature', ...otherMetrics] : otherMetrics;
                     }
                 }
+
+                const isOffline =
+                    !lastOccurredAt ||
+                    new Date(lastOccurredAt).getTime() <
+                    Date.now() - 30 * 60 * 1000;
 
                 return {
                     id: row.id,
@@ -189,8 +281,9 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                     disabled_at: row.disabled_at,
                     created_at: row.created_at,
 
-                    site: row.site_name ? { name: row.site_name } : null,
+                    site: row.site_name ? { name: row.site_name, timezone: row.site_timezone || null } : null,
                     area: row.area_name ? { name: row.area_name } : null,
+                    has_alert: Boolean(row.has_alert),
 
                     current_status: isOffline
                         ? {
@@ -206,18 +299,20 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                             }
                             : null,
 
-                    latest_telemetry: row.last_telemetry ? {
-                        occurred_at: row.last_telemetry_at,
-                        payload: row.last_telemetry
+                    latest_telemetry: latestPayload && lastOccurredAt ? {
+                        occurred_at: lastOccurredAt,
+                        payload: latestPayload
                     } : null,
 
                     metrics: {
                         temperature: tempVal,
                         humidity: humVal,
-                        battery_percent: row.battery_percent != null ? Number(row.battery_percent) : null,
+                        battery_percent: batteryVal ?? (row.battery_percent != null ? Number(row.battery_percent) : null),
                         battery_raw: row.battery_raw != null ? Number(row.battery_raw) : null,
                         battery_updated_at: row.battery_updated_at ?? null,
-                    }
+                    },
+
+                    available_metrics: availableMetrics
                 };
             });
 

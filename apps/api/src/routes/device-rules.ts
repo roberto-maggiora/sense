@@ -54,7 +54,7 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
     // POST /devices/:id/rules - Create a rule for a device
     fastify.post<{
         Params: { id: string },
-        Body: { metric: string, operator: Operator, threshold: number, duration_seconds: number, severity: DeviceStatusLevel, enabled: boolean, recipients: string[] }
+        Body: { metric: string, operator: Operator, threshold: number, duration_seconds: number, severity: DeviceStatusLevel, enabled: boolean, reminder_interval_minutes?: number, reminder_max_count?: number, recipients: string[] }
     }>('/devices/:id/rules', {
         preHandler: [fastify.requireClientId, fastify.requireRole([Role.CLIENT_ADMIN, Role.SUPER_ADMIN, Role.SITE_ADMIN])]
     }, async (request, reply) => {
@@ -64,7 +64,7 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
             user: request.user ? { role: request.user.role, client_id: request.user.client_id } : null,
             clientId
         }, 'Creating rule for device');
-        const { metric, operator, threshold, duration_seconds, severity, enabled, recipients } = request.body;
+        const { metric, operator, threshold, duration_seconds, severity, enabled, reminder_interval_minutes, reminder_max_count, recipients } = request.body;
 
         // Validation
         if (metric !== 'temperature') {
@@ -124,6 +124,8 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
                     duration_seconds,
                     severity,
                     enabled: enabled ?? true,
+                    reminder_interval_minutes,
+                    reminder_max_count,
                     recipients: {
                         create: recipients.map(user_id => ({ user_id }))
                     }
@@ -142,7 +144,7 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
             return reply.code(201).send(rule);
         } catch (error: any) {
             if (error.code === 'P2002') { // Unique constraint violation
-                return reply.code(409).send({ error: `A ${severity} rule for ${metric} already exists on this device` });
+                return reply.code(409).send({ error: `A rule with operator "${operator}" for ${metric} already exists on this device.` });
             }
             request.log.error(error);
             return reply.code(500).send({ error: 'Internal Server Error' });
@@ -152,7 +154,7 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
     // PATCH /rules/:ruleId - Update a rule
     fastify.patch<{
         Params: { ruleId: string },
-        Body: { enabled?: boolean, threshold?: number, duration_seconds?: number, operator?: Operator, severity?: DeviceStatusLevel, recipients?: string[] }
+        Body: { enabled?: boolean, threshold?: number, duration_seconds?: number, operator?: Operator, severity?: DeviceStatusLevel, reminder_interval_minutes?: number | null, reminder_max_count?: number | null, recipients?: string[] }
     }>('/rules/:ruleId', {
         preHandler: [fastify.requireClientId, fastify.requireRole([Role.CLIENT_ADMIN, Role.SUPER_ADMIN, Role.SITE_ADMIN])]
     }, async (request, reply) => {
@@ -172,6 +174,12 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
         }
         if (updates.threshold !== undefined && typeof updates.threshold !== 'number') {
             return reply.code(400).send({ error: 'Threshold must be a number' });
+        }
+        if (updates.reminder_interval_minutes !== undefined && updates.reminder_interval_minutes !== null && typeof updates.reminder_interval_minutes !== 'number') {
+            return reply.code(400).send({ error: 'Reminder interval must be a number' });
+        }
+        if (updates.reminder_max_count !== undefined && updates.reminder_max_count !== null && typeof updates.reminder_max_count !== 'number') {
+            return reply.code(400).send({ error: 'Reminder max count must be a number' });
         }
         if (updates.recipients !== undefined && (!Array.isArray(updates.recipients) || updates.recipients.length === 0)) {
             return reply.code(400).send({ error: 'At least one recipient is required' });
@@ -240,7 +248,7 @@ export default async function deviceRulesRoutes(fastify: FastifyInstance) {
         } catch (error: any) {
             request.log.error(error);
             if (error.code === 'P2002') {
-                return reply.code(409).send({ error: 'Cannot update: another rule already exists for this severity and metric combination' });
+                return reply.code(409).send({ error: 'A rule with this metric and operator already exists on this device.' });
             }
 
             return reply.code(500).send({ error: 'Internal Server Error' });

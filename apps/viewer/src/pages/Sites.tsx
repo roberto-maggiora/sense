@@ -13,6 +13,7 @@ export default function SitesPage() {
 
     // Form states
     const [newSiteName, setNewSiteName] = useState("");
+    const [newSiteTimezone, setNewSiteTimezone] = useState("");
     const [newAreaName, setNewAreaName] = useState("");
     const [creatingSite, setCreatingSite] = useState(false);
     const [creatingArea, setCreatingArea] = useState(false);
@@ -58,9 +59,10 @@ export default function SitesPage() {
         if (!newSiteName.trim()) return;
         setCreatingSite(true);
         try {
-            const site = await createSite(newSiteName);
+            const site = await createSite(newSiteName, newSiteTimezone || undefined);
             setSites([site, ...sites]);
             setNewSiteName("");
+            setNewSiteTimezone("");
             setSelectedSite(site); // Select the new site
         } catch (e: any) {
             alert(e.message || "Failed to create site");
@@ -96,6 +98,18 @@ export default function SitesPage() {
         }
     };
 
+    const handleChangeTimezone = async (site: Site, newTz: string) => {
+        try {
+            const updated = await updateSite(site.id, { timezone: newTz || null });
+            setSites(sites.map(s => s.id === site.id ? updated : s));
+            if (selectedSite?.id === site.id) {
+                setSelectedSite(updated);
+            }
+        } catch (e: any) {
+            alert(e.message);
+        }
+    };
+
     const toggleAreaDisabled = async (area: Area) => {
         try {
             const updated = await updateArea(area.id, { disabled: !area.disabled_at });
@@ -116,21 +130,36 @@ export default function SitesPage() {
                 <div className="w-1/3 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm">
                     <div className="p-4 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/5">
                         <h2 className="font-semibold text-slate-900 dark:text-white mb-3">Sites</h2>
-                        <form onSubmit={handleCreateSite} className="flex gap-2">
-                            <input
-                                type="text"
-                                placeholder="New Site Name"
-                                className="flex-1 px-3 py-1.5 text-sm border border-slate-300 dark:border-white/20 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                value={newSiteName}
-                                onChange={e => setNewSiteName(e.target.value)}
-                            />
-                            <button
-                                type="submit"
-                                disabled={creatingSite || !newSiteName.trim()}
-                                className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-500 disabled:opacity-50"
+                        <form onSubmit={handleCreateSite} className="flex flex-col gap-2">
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="New Site Name"
+                                    className="flex-1 px-3 py-1.5 text-sm border border-slate-300 dark:border-white/20 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    value={newSiteName}
+                                    onChange={e => setNewSiteName(e.target.value)}
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={creatingSite || !newSiteName.trim()}
+                                    className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-500 disabled:opacity-50"
+                                >
+                                    Add
+                                </button>
+                            </div>
+                            <select
+                                className="w-full px-3 py-1.5 text-sm border border-slate-300 dark:border-white/20 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                value={newSiteTimezone}
+                                onChange={e => setNewSiteTimezone(e.target.value)}
                             >
-                                Add
-                            </button>
+                                <option value="">UTC (Default)</option>
+                                <option value="Europe/London">Europe/London</option>
+                                <option value="Europe/Rome">Europe/Rome</option>
+                                <option value="America/New_York">America/New_York</option>
+                                <option value="America/Chicago">America/Chicago</option>
+                                <option value="America/Denver">America/Denver</option>
+                                <option value="America/Los_Angeles">America/Los_Angeles</option>
+                            </select>
                         </form>
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -148,10 +177,24 @@ export default function SitesPage() {
                                         : 'hover:bg-slate-50 dark:hover:bg-white/5 border border-transparent'
                                         }`}
                                 >
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 flex-1">
                                         <div className={`font-medium truncate ${site.disabled_at ? 'text-slate-400 line-through' : 'text-slate-900 dark:text-white'}`}>
                                             {site.name}
                                         </div>
+                                        <select
+                                            className="text-xs bg-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 focus:outline-none cursor-pointer mt-0.5 pr-4 border-b border-transparent hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
+                                            value={site.timezone || ""}
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={(e) => { e.stopPropagation(); handleChangeTimezone(site, e.target.value); }}
+                                        >
+                                            <option value="">UTC</option>
+                                            <option value="Europe/London">Europe/London</option>
+                                            <option value="Europe/Rome">Europe/Rome</option>
+                                            <option value="America/New_York">America/New_York</option>
+                                            <option value="America/Chicago">America/Chicago</option>
+                                            <option value="America/Denver">America/Denver</option>
+                                            <option value="America/Los_Angeles">America/Los_Angeles</option>
+                                        </select>
                                     </div>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); toggleSiteDisabled(site); }}

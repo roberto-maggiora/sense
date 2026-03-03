@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { prisma } from '@sense/database';
+import { prisma, autoResolveAlertsForDisabledDevice } from '@sense/database';
 import { TelemetryV1Source } from '@sense/contracts';
 
 interface DeviceParams {
@@ -234,6 +234,19 @@ export default async function deviceRoutes(fastify: FastifyInstance) {
                     model
                 }
             });
+
+            if (disabled === true) {
+                try {
+                    await autoResolveAlertsForDisabledDevice({
+                        device_id: id,
+                        client_id: clientId,
+                        actor_user_id: request.user?.id ?? null,
+                    });
+                } catch (err) {
+                    request.log.error(err, `Failed to auto-resolve alerts for disabled device ${id}`);
+                }
+            }
+
             return { data: updated };
         } catch (error: any) {
             if (error.code === 'P2025') {

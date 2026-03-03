@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Cpu, Bell, Settings, LogOut, Map } from "lucide-react";
+import { LayoutDashboard, Cpu, Bell, Settings, LogOut, Map, FileText } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { isSuperAdmin, canManageCompanyUsers } from "../lib/roles";
 import AiChatSidebar, { ChatTriggerButton } from "./AiChatSidebar";
@@ -8,9 +8,9 @@ import AiChatSidebar, { ChatTriggerButton } from "./AiChatSidebar";
 export default function AppShell() {
     const { user, client, logout, selectedClientId, selectedClientName, setSelectedClientId } = useAuth();
     const navigate = useNavigate();
-    const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const [theme, setTheme] = useState<"light" | "dark" | "sand">(() => {
         if (typeof window !== "undefined") {
-            return (localStorage.getItem("theme") as "light" | "dark") || "light";
+            return (localStorage.getItem("theme") as "light" | "dark" | "sand") || "light";
         }
         return "light";
     });
@@ -20,16 +20,16 @@ export default function AppShell() {
     const location = useLocation();
 
     useEffect(() => {
-        if (theme === "dark") {
-            document.documentElement.classList.add("dark");
-        } else {
-            document.documentElement.classList.remove("dark");
+        document.documentElement.classList.remove("dark", "sand");
+        if (theme === "dark" || theme === "sand") {
+            if (theme === "dark") document.documentElement.classList.add("dark");
+            if (theme === "sand") document.documentElement.classList.add("sand", "dark");
         }
         localStorage.setItem("theme", theme);
     }, [theme]);
 
     const toggleTheme = () => {
-        setTheme(prev => prev === "dark" ? "light" : "dark");
+        setTheme(prev => prev === "light" ? "dark" : prev === "dark" ? "sand" : "light");
     };
 
     const navLinks = [
@@ -37,6 +37,7 @@ export default function AppShell() {
         { name: "Devices", path: "/devices", icon: Cpu },
         { name: "Sites", path: "/sites", icon: Map },
         { name: "Alerts", path: "/alerts", icon: Bell },
+        { name: "Reports", path: "/reports", icon: FileText },
     ];
 
     const adminLinks = [
@@ -77,13 +78,17 @@ export default function AppShell() {
                         <div className="w-8 h-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-inner shadow-white/20">
                             {primaryLetter}
                         </div>
-                        <div className="flex-1 text-left">
+                        <div className="flex-1 text-left min-w-0">
                             <div className="text-[10px] font-bold tracking-wider uppercase text-slate-500 group-hover:text-slate-400">
                                 {isImpersonating ? "Impersonating" : "Project"}
                             </div>
                             <div className="text-sm font-medium text-slate-200 truncate pr-2" title={displayClientName}>
                                 {isSuperAdminUser && !isImpersonating ? (
                                     <Link to="/admin/clients" className="hover:underline hover:text-white transition-colors">Select a client</Link>
+                                ) : isImpersonating ? (
+                                    <Link to="/admin/clients" className="hover:underline hover:text-white transition-colors block truncate">
+                                        {displayClientName}
+                                    </Link>
                                 ) : (
                                     displayClientName
                                 )}
@@ -283,12 +288,12 @@ export default function AppShell() {
                         )}
                         <div className="pt-4 mt-4 border-t border-white/10">
                             <div className="flex items-center justify-between px-2 text-slate-400">
-                                <span className="text-sm font-medium">Theme</span>
+                                <span className="text-sm font-medium">Theme ({theme})</span>
                                 <button
                                     onClick={toggleTheme}
                                     className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
                                 >
-                                    {theme === 'light' ? '🌙' : '☀️'}
+                                    {theme === 'light' ? '🌙' : theme === 'dark' ? '🏜️' : '☀️'}
                                 </button>
                             </div>
                         </div>
@@ -312,10 +317,12 @@ export default function AppShell() {
                         <button
                             onClick={toggleTheme}
                             className="p-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors rounded-full hover:bg-slate-100 dark:hover:bg-white/5"
-                            title="Toggle Theme"
+                            title={`Toggle Theme (Current: ${theme})`}
                         >
                             {theme === 'light' ? (
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+                            ) : theme === 'dark' ? (
+                                <span className="w-5 h-5 flex items-center justify-center text-lg leading-none" role="img" aria-label="Sand">🏜️</span>
                             ) : (
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
                             )}

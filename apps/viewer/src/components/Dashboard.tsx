@@ -46,6 +46,7 @@ type Device = {
         battery_raw: number | null;
         battery_updated_at: string | null;
     };
+    available_metrics?: string[];
 };
 
 type AlertStatus = 'triggered' | 'notified' | 'acknowledged' | 'snoozed' | 'resolved' | 'auto_resolved';
@@ -374,70 +375,48 @@ export default function Dashboard() {
     // ─── Selected device ──────────────────────────────────────────────────
     const selectedAck = selectedDeviceId ? (ackMap[selectedDeviceId] ?? null) : null;
 
-    // ─── Deriving Banner State & Actions ──────────────────────────────────
-    let bannerType: 'green' | 'amber' | 'red' | 'grey' = 'green';
-    let bannerText = 'All good — no issues detected.';
-    let partialData = false;
-
-    const redDevices = devices.filter(d => d.current_status?.status === 'red').length;
-    const amberDevices = devices.filter(d => d.current_status?.status === 'amber').length;
-    const offlineDevices = devices.filter(d => d.current_status?.status === 'offline').length;
-    const offlineHubs = hubs.filter(h => h.status !== 'online').length;
-    const redBatteries = batteryAttentionDevices.filter(b => b.severity === 'red');
-    const amberBatteries = batteryAttentionDevices.filter(b => b.severity === 'amber');
-
-    const criticalItemsCount = redDevices + redBatteries.length;
-    const attentionItemsCount = amberDevices + amberBatteries.length;
-    const offlineItemsCount = offlineDevices + offlineHubs;
-
-    if (error || batteryError || hubsError) {
-        partialData = true;
-    }
-
-    if (criticalItemsCount > 0) {
-        bannerType = 'red';
-        bannerText = `Action required — ${criticalItemsCount} critical issue${criticalItemsCount > 1 ? 's' : ''}.`;
-    } else if (attentionItemsCount > 0) {
-        bannerType = 'amber';
-        bannerText = `Some attention needed — ${attentionItemsCount} item${attentionItemsCount > 1 ? 's' : ''} need action.`;
-    } else if (offlineItemsCount > 0) {
-        bannerType = 'grey';
-        bannerText = `Limited visibility — ${offlineItemsCount} device${offlineItemsCount > 1 ? 's' : ''} offline or not reporting.`;
-    }
-
     // ─── Next Actions ─────────────────────────────────────────────────────
-    const nextActions = [];
+    const redBatteries = batteryAttentionDevices.filter(b => b.severity === 'red');
+
+    const nextActions: any[] = [];
 
     // 1. Critical batteries
     for (const b of redBatteries) {
-        if (nextActions.length >= 3) break;
+        if (nextActions.length >= 5) break;
         nextActions.push({
             id: 'batt-' + b.device_id,
-            label: `Replace battery on ${b.name} (${Math.round(b.battery_percent ?? 0)}%)`,
+            label: `Replace unit battery (${Math.round(b.battery_percent ?? 0)}%)`,
+            deviceName: b.name,
             link: `/device/${b.device_id}`,
-            icon: BatteryIcon
+            icon: BatteryIcon,
+            status: 'red'
         });
     }
 
     // 2. Hubs missed heartbeat
     for (const h of hubs.filter(h => h.status !== 'online')) {
-        if (nextActions.length >= 3) break;
+        if (nextActions.length >= 5) break;
         nextActions.push({
             id: 'hub-' + h.serial,
-            label: `Hub ${h.friendly_name || h.serial} offline (${h.minutes_since_heartbeat ?? '> 120'} mins)`,
+            label: `Hub offline (${h.minutes_since_heartbeat ?? '> 120'}m)`,
+            deviceName: h.friendly_name || h.serial,
             icon: WifiIcon,
+            link: null,
+            status: 'offline'
         });
     }
 
     // 3. Active Alerts
     const alertDevices = devices.filter(d => d.current_status?.status === 'red' || d.current_status?.status === 'amber');
     for (const d of alertDevices) {
-        if (nextActions.length >= 3) break;
+        if (nextActions.length >= 5) break;
         nextActions.push({
             id: 'alert-' + d.id,
-            label: `Review alert on ${d.name}`,
+            label: `Active alert on metric`,
+            deviceName: d.name,
             link: `/alerts`,
-            icon: AlertIcon
+            icon: AlertIcon,
+            status: d.current_status?.status || 'red'
         });
     }
 
@@ -518,54 +497,48 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            {/* Status Banner + Next Actions row */}
-            <div className="mb-6 flex flex-col lg:flex-row gap-4">
-                <div
-                    onClick={() => {
-                        if (bannerType === 'red' || bannerType === 'amber') {
-                            setSystemFilter(systemFilter === 'attention' ? null : 'attention');
-                        } else if (bannerType === 'grey') {
-                            setSystemFilter(systemFilter === 'offline' ? null : 'offline');
-                        } else {
-                            setSystemFilter(null);
-                        }
-                    }}
-                    className={`flex-1 rounded-xl p-4 border flex items-center justify-between cursor-pointer transition-colors ${systemFilter ? 'ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-slate-900 ' : ''
-                        }${bannerType === 'red' ? 'bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-500/20 text-red-800 dark:text-red-200' :
-                            bannerType === 'amber' ? 'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20 text-amber-800 dark:text-amber-200' :
-                                bannerType === 'grey' ? 'bg-slate-100 border-slate-200 dark:bg-slate-500/10 dark:border-slate-500/20 text-slate-800 dark:text-slate-200' :
-                                    'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-200'
-                        }`}
-                >
-                    <div className="flex flex-col">
-                        <span className="font-semibold text-lg">{bannerText}</span>
-                        {partialData && <span className="text-xs opacity-80 mt-1">Partial data — some widgets unavailable</span>}
-                    </div>
-                    {(bannerType !== 'green') && (
-                        <div className="text-sm font-medium underline decoration-transparent hover:decoration-current transition-all">
-                            {systemFilter ? 'Clear filter' : 'Filter list'}
-                        </div>
+            {/* Actionable To-Do Panel */}
+            <div className="mb-6 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 shadow-sm flex flex-col max-h-[400px]">
+                <div className="p-4 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Actionable Items</h3>
+                    {nextActions.length > 0 && (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            {nextActions.length}
+                        </span>
                     )}
                 </div>
-
-                {nextActions.length > 0 && (
-                    <div className="lg:w-96 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 p-4 shadow-sm">
-                        <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-3">Next actions</h3>
-                        <div className="space-y-2">
-                            {nextActions.map(action => {
-                                const Content = (
-                                    <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors">
-                                        <action.icon className="w-4 h-4 shrink-0 opacity-70" />
-                                        <span className="truncate">{action.label}</span>
+                {nextActions.length > 0 ? (
+                    <div className="overflow-y-auto p-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+                        {nextActions.map(action => (
+                            <Link
+                                key={action.id}
+                                to={action.link || '#'}
+                                className="flex items-start gap-3 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group text-left"
+                            >
+                                <div className={`mt-0.5 p-1.5 rounded-md ${action.status === 'offline' ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' :
+                                    action.status === 'red' ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400' :
+                                        'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400'
+                                    }`}>
+                                    <action.icon className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium text-slate-900 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                        {action.label}
                                     </div>
-                                );
-                                return action.link ? (
-                                    <Link key={action.id} to={action.link} className="block">{Content}</Link>
-                                ) : (
-                                    <div key={action.id}>{Content}</div>
-                                );
-                            })}
-                        </div>
+                                    <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
+                                        {action.deviceName}
+                                    </div>
+                                </div>
+                            </Link>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="p-8 text-center flex flex-col items-center justify-center text-slate-500">
+                        <svg className="w-8 h-8 text-emerald-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">All clear!</span>
+                        <span className="text-xs mt-1">No alerts or offline devices requiring attention.</span>
                     </div>
                 )}
             </div>
@@ -638,7 +611,7 @@ export default function Dashboard() {
                                                         unit={metricConfig.temperature.unit}
                                                     />
                                                 )}
-                                                {d.metrics?.humidity != null && d.metrics?.battery_percent == null && (
+                                                {d.metrics?.humidity != null && (
                                                     <MetricChip
                                                         icon={metricConfig.humidity.icon}
                                                         value={d.metrics.humidity}
@@ -709,7 +682,16 @@ export default function Dashboard() {
                                     </div>
                                 )}
 
-                                <TemperatureHistoryCard deviceId={selectedDeviceId} />
+                                {(() => {
+                                    const selectedDevice = devices.find(d => d.id === selectedDeviceId);
+                                    return (
+                                        <TemperatureHistoryCard
+                                            key={selectedDeviceId}
+                                            deviceId={selectedDeviceId}
+                                            availableMetrics={selectedDevice?.available_metrics}
+                                        />
+                                    );
+                                })()}
                             </>
                         ) : (
                             <div className="h-64 flex items-center justify-center text-slate-400 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">

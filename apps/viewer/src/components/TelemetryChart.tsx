@@ -5,7 +5,8 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    ResponsiveContainer
+    ResponsiveContainer,
+    ReferenceLine
 } from "recharts";
 import { useMemo } from "react";
 
@@ -19,9 +20,10 @@ type TelemetryChartProps = {
     label: string;
     unit: string;
     color?: string;
+    thresholds?: { value: number; label: string; operator?: string }[];
 };
 
-export default function TelemetryChart({ data, label, unit, color = "#3b82f6" }: TelemetryChartProps) {
+export default function TelemetryChart({ data, label, unit, color = "#3b82f6", thresholds = [] }: TelemetryChartProps) {
     const stats = useMemo(() => {
         if (!data.length) return { min: 0, max: 0, avg: 0, last: 0 };
         const values = data.map((d) => d.value).filter((v): v is number => v != null);
@@ -89,8 +91,38 @@ export default function TelemetryChart({ data, label, unit, color = "#3b82f6" }:
                             fontSize={11}
                             tickLine={false}
                             axisLine={false}
-                            domain={['auto', 'auto']}
+                            domain={[
+                                (dataMin: number) => {
+                                    const minThreshold = thresholds.length ? Math.min(...thresholds.map(t => t.value)) : Infinity;
+                                    const absoluteMin = Math.min(dataMin, minThreshold);
+                                    if (absoluteMin === Infinity) return 'auto';
+                                    const padding = label === 'humidity' ? 2 : 0.5;
+                                    return Math.max(0, absoluteMin - padding); // don't pad below 0 for typical env metrics
+                                },
+                                (dataMax: number) => {
+                                    const maxThreshold = thresholds.length ? Math.max(...thresholds.map(t => t.value)) : -Infinity;
+                                    const absoluteMax = Math.max(dataMax, maxThreshold);
+                                    if (absoluteMax === -Infinity) return 'auto';
+                                    const padding = label === 'humidity' ? 2 : 0.5;
+                                    return absoluteMax + padding;
+                                }
+                            ]}
                         />
+                        {thresholds.map((t, i) => {
+                            const isMax = t.operator === 'gt' || t.operator === 'gte';
+                            const isMin = t.operator === 'lt' || t.operator === 'lte';
+                            const lineStroke = isMax ? "#dc2626" : (isMin ? "#2563eb" : "#ef4444");
+
+                            return (
+                                <ReferenceLine
+                                    key={i}
+                                    y={t.value}
+                                    stroke={lineStroke}
+                                    strokeWidth={2}
+                                    label={{ position: 'insideTopLeft', value: t.label, fill: lineStroke, fontSize: 10, offset: 5, fontWeight: 600 }}
+                                />
+                            );
+                        })}
                         <Tooltip
                             content={({ active, payload, label }) => {
                                 if (active && payload && payload.length) {

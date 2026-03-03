@@ -59,6 +59,13 @@ export default async function alertsRoutes(fastify: FastifyInstance) {
             where.device = { site_id: request.user.site_id || 'unassigned-guard' };
         }
 
+        if (!device_id) {
+            where.device = {
+                ...(where.device || {}),
+                disabled_at: null
+            };
+        }
+
         const alerts = await prisma.alert.findMany({
             where,
             take: take + 1,
@@ -67,6 +74,10 @@ export default async function alertsRoutes(fastify: FastifyInstance) {
             include: {
                 device: { select: { id: true, name: true, site_id: true, area_id: true, external_id: true } },
                 acknowledged_by_user: { select: { id: true, name: true, email: true } },
+                corrective_actions: {
+                    take: 1,
+                    orderBy: { created_at: 'desc' }
+                }
             },
         });
 
@@ -131,6 +142,7 @@ export default async function alertsRoutes(fastify: FastifyInstance) {
                     }
                 },
                 events: { orderBy: { created_at: 'asc' } },
+                corrective_actions: { orderBy: { created_at: 'asc' } }
             },
         });
 
@@ -186,6 +198,20 @@ export default async function alertsRoutes(fastify: FastifyInstance) {
             orderBy: { created_at: 'asc' }
         });
 
+        const corrective_actions = await prisma.correctiveAction.findMany({
+            where: { alert_id: id },
+            orderBy: { created_at: 'asc' },
+            include: {
+                created_by_user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true
+                    }
+                }
+            }
+        });
+
         return {
             alert_id: id,
             events: events.map(e => ({
@@ -193,8 +219,54 @@ export default async function alertsRoutes(fastify: FastifyInstance) {
                 event_type: e.event_type,
                 created_at: e.created_at,
                 metadata_json: e.metadata_json
+            })),
+            corrective_actions: corrective_actions.map(ca => ({
+                id: ca.id,
+                action_text: ca.action_text,
+                created_at: ca.created_at,
+                created_by_user: ca.created_by_user ? {
+                    id: ca.created_by_user.id,
+                    name: ca.created_by_user.name
+                } : null
             }))
         };
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // POST /alerts/:id/corrective-actions
+    // Body: { action_text: string }
+    // ─────────────────────────────────────────────────────────────
+    fastify.post<{ Params: { id: string }; Body: { action_text: string } }>('/alerts/:id/corrective-actions', {
+        preHandler: [fastify.requireClientId]
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const clientId = request.clientId as string;
+        const { action_text } = request.body || {};
+
+        if (!action_text || typeof action_text !== 'string' || action_text.trim() === '') {
+            return reply.code(400).send({ error: 'action_text is required and must not be empty' });
+        }
+
+        const alert = await prisma.alert.findFirst({ where: { id, client_id: clientId } });
+        if (!alert) return reply.code(404).send({ error: 'Alert not found' });
+
+        try {
+            const { createCorrectiveAction } = await import('@sense/database');
+            const newAction = await createCorrectiveAction({
+                alert_id: id,
+                client_id: clientId,
+                action_text,
+                created_by_user_id: request.user?.id ?? null
+            });
+            request.log.info({ alert_id: id, actor: request.user?.id }, 'corrective_action_created');
+            return { ok: true, corrective_action: newAction };
+        } catch (err: any) {
+            request.log.error(err);
+            if (err.message.includes('cannot exceed 2000')) {
+                return reply.code(400).send({ error: err.message });
+            }
+            return reply.code(500).send({ error: 'Internal Server Error' });
+        }
     });
 
     // ─────────────────────────────────────────────────────────────

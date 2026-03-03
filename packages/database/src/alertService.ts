@@ -71,6 +71,30 @@ export async function triggerAlert(
         });
 
         if (!existing) {
+            // Check if this continuous breach was already resolved
+            if (input.context.since) {
+                const lastResolved = await tx.alert.findFirst({
+                    where: {
+                        device_id: input.device_id,
+                        ...(input.rule_id
+                            ? { rule_id: input.rule_id }
+                            : { parameter: input.parameter ?? null, rule_id: null }
+                        ),
+                        status: { in: RESOLVED_STATUSES },
+                    },
+                    orderBy: { resolved_at: 'desc' }
+                });
+
+                if (lastResolved && lastResolved.context_json && typeof lastResolved.context_json === 'object') {
+                    const ctx = lastResolved.context_json as any;
+                    if (ctx.since === input.context.since) {
+                        // This exact continuous breach was already handled/resolved!
+                        // Do not create a new spam alert.
+                        return { id: lastResolved.id, created: false };
+                    }
+                }
+            }
+
             // Create new alert
             const alert = await tx.alert.create({
                 data: {
@@ -113,6 +137,7 @@ export async function triggerAlert(
                     severity: input.severity,
                     current_status: 'triggered',
                     occurred_at: now.toISOString(),
+                    reason: 'created',
                     message: `Alert triggered: ${input.context.metric ?? 'unknown'} ${input.context.operator ?? ''} ${input.threshold} (value: ${input.current_value ?? 'N/A'})`,
                     recipients: [],
                 },
@@ -153,22 +178,8 @@ export async function triggerAlert(
                 },
             });
 
-            // Enqueue notification for re-trigger
-            await enqueueNotification(tx, {
-                client_id: input.client_id,
-                alert_id: existing.id,
-                idempotency_key: `alert:${existing.id}:event:${reEvent.id}`,
-                payload: {
-                    alert_id: existing.id,
-                    device_id: input.device_id,
-                    rule_id: input.rule_id,
-                    severity: input.severity,
-                    current_status: 'triggered',
-                    occurred_at: now.toISOString(),
-                    message: `Alert re-triggered (was ${existing.status}): ${input.context.metric ?? 'unknown'} ${input.context.operator ?? ''} ${input.threshold} (value: ${input.current_value ?? 'N/A'})`,
-                    recipients: [],
-                },
-            });
+            // Note: Explicitly dropping the enqueueNotification here based on Notifications v1 spec.
+            // Notifications should only trigger on `created`, `escalated_to_red`, or `resolved`.
         }
 
         // Record an event whenever severity changes, regardless of wasInactive
@@ -204,6 +215,7 @@ export async function triggerAlert(
                         severity: input.severity,
                         current_status: existing.status,
                         occurred_at: now.toISOString(),
+                        reason: 'escalated_to_red',
                         message: `Alert severity escalated from ${existing.severity} to ${input.severity}: ${input.context.metric ?? 'unknown'} (value: ${input.current_value ?? 'N/A'}, threshold: ${input.threshold})`,
                         recipients: [],
                     },
@@ -235,7 +247,7 @@ export async function autoResolveAlert(alertId: string, clientId: string): Promi
             data: { status: 'auto_resolved', resolved_at: new Date() },
         });
 
-        await tx.alertEvent.create({
+        const resolveEvent = await tx.alertEvent.create({
             data: {
                 alert_id: alertId,
                 client_id: clientId,
@@ -243,6 +255,98 @@ export async function autoResolveAlert(alertId: string, clientId: string): Promi
                 metadata_json: { previous_status: alert.status } as Prisma.InputJsonValue,
             },
         });
+
+        await enqueueNotification(tx, {
+            client_id: clientId,
+            alert_id: alertId,
+            idempotency_key: `alert:${alertId}:event:${resolveEvent.id}`,
+            payload: {
+                alert_id: alertId,
+                device_id: alert.device_id,
+                rule_id: alert.rule_id,
+                severity: alert.severity,
+                current_status: 'resolved',
+                occurred_at: new Date().toISOString(),
+                reason: 'resolved',
+                message: `Alert auto-resolved.`,
+                recipients: [],
+            },
+        });
+    });
+}
+
+// ─────────────────────────────────────────────────────────────
+// autoResolveAlertsForDisabledDevice
+// ─────────────────────────────────────────────────────────────
+
+export async function autoResolveAlertsForDisabledDevice(opts: {
+    device_id: string;
+    client_id: string;
+    actor_user_id?: string | null;
+}): Promise<{ resolved_count: number; alert_ids: string[] }> {
+    return prisma.$transaction(async (tx) => {
+        const openAlerts = await tx.alert.findMany({
+            where: {
+                device_id: opts.device_id,
+                client_id: opts.client_id,
+                status: { in: ['triggered', 'acknowledged', 'snoozed', 'notified'] },
+                resolved_at: null
+            },
+            select: { id: true, status: true, severity: true, rule_id: true, parameter: true }
+        });
+
+        if (openAlerts.length === 0) {
+            return { resolved_count: 0, alert_ids: [] };
+        }
+
+        const alertIds = openAlerts.map(a => a.id);
+        const resolvedAt = new Date();
+
+        await tx.alert.updateMany({
+            where: { id: { in: alertIds } },
+            data: {
+                status: 'auto_resolved',
+                resolved_at: resolvedAt
+            }
+        });
+
+        await tx.alertEvent.createMany({
+            data: openAlerts.map(a => ({
+                alert_id: a.id,
+                client_id: opts.client_id,
+                event_type: 'auto_resolved',
+                actor_user_id: opts.actor_user_id || null,
+                metadata_json: {
+                    reason: 'device_disabled',
+                    previous_status: a.status,
+                    previous_severity: a.severity
+                } as Prisma.InputJsonValue
+            }))
+        });
+
+        for (const a of openAlerts) {
+            await enqueueNotification(tx, {
+                client_id: opts.client_id,
+                alert_id: a.id,
+                idempotency_key: `alert:${a.id}:device_disabled:${resolvedAt.getTime()}`,
+                payload: {
+                    alert_id: a.id,
+                    device_id: opts.device_id,
+                    rule_id: a.rule_id,
+                    severity: a.severity,
+                    current_status: 'resolved',
+                    occurred_at: resolvedAt.toISOString(),
+                    reason: 'resolved',
+                    message: `This alert was automatically closed because the device was taken out of operation (disabled).
+No further monitoring or reminders will be issued for this incident.`,
+                    recipients: [],
+                }
+            }).catch(err => {
+                console.error(`[autoResolveAlertsForDisabledDevice] Failed to enqueue notification for alert ${a.id}:`, err);
+            });
+        }
+
+        return { resolved_count: openAlerts.length, alert_ids: alertIds };
     });
 }
 
@@ -340,13 +444,30 @@ export async function resolveAlert(
             data: { status: 'resolved', resolved_at: new Date() },
         });
 
-        await tx.alertEvent.create({
+        const manualResolveEvent = await tx.alertEvent.create({
             data: {
                 alert_id: alertId,
                 client_id: clientId,
                 event_type: 'resolved',
                 actor_user_id: actorUserId ?? null,
                 metadata_json: { note: note ?? null } as Prisma.InputJsonValue,
+            },
+        });
+
+        await enqueueNotification(tx, {
+            client_id: clientId,
+            alert_id: alertId,
+            idempotency_key: `alert:${alertId}:event:${manualResolveEvent.id}`,
+            payload: {
+                alert_id: alertId,
+                device_id: alert.device_id,
+                rule_id: alert.rule_id,
+                severity: alert.severity,
+                current_status: 'resolved',
+                occurred_at: new Date().toISOString(),
+                reason: 'resolved',
+                message: `Alert resolved manually.`,
+                recipients: [],
             },
         });
     });

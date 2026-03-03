@@ -5,11 +5,41 @@ import { CONTRACT_VERSION, TELEMETRY_V1_SCHEMA_VERSION, TelemetryEventV1 } from 
 import { updateDeviceStatusForDevice } from './status/updateDeviceStatus';
 import { evaluateAndUpdateAlerts } from './alerts/evaluateAndUpdateAlert';
 import { startDispatcher, stopDispatcher } from './notifications/dispatcher';
+import { listAlertsDueForReminder, enqueueReminderForAlert } from '@sense/database';
 
 console.log(`Worker started. Contracts version: ${CONTRACT_VERSION}`);
 
 // Start notification outbox dispatcher
 startDispatcher();
+
+// --- Reminders Loop ---
+let remindersInterval: ReturnType<typeof setInterval> | null = null;
+const REMINDERS_POLL_MS = 60_000;
+
+function startRemindersLoop() {
+    remindersInterval = setInterval(async () => {
+        try {
+            const now = new Date();
+            const dueAlerts = await listAlertsDueForReminder(now, 50);
+            if (dueAlerts.length > 0) {
+                console.log(`[REMINDERS] Found ${dueAlerts.length} alerts due for a reminder. Enqueueing...`);
+                for (const due of dueAlerts) {
+                    try {
+                        await enqueueReminderForAlert(due.alert.id, now);
+                    } catch (err: any) {
+                        console.error(`[REMINDERS] Failed to enqueue reminder for alert ${due.alert.id}:`, err.message);
+                    }
+                }
+            }
+        } catch (err: any) {
+            console.error(`[REMINDERS] Loop error:`, err.message);
+        }
+    }, REMINDERS_POLL_MS);
+}
+
+if (process.env.WORKER_RUN_ONCE !== '1') {
+    startRemindersLoop();
+}
 
 // --- Health Check Server ---
 import * as http from 'http';
@@ -113,6 +143,7 @@ const shutdown = async (signal: string) => {
     console.log(`[${signal}] Shutting down worker...`);
 
     stopDispatcher();
+    if (remindersInterval) clearInterval(remindersInterval);
 
     server.close(() => {
         console.log('Health server closed');

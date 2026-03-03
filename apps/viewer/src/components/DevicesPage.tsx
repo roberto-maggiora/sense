@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getDashboardDevices, updateDevice } from "../lib/api";
 import { formatDeviceLocation } from "../lib/location";
+import { formatTemperature } from "../lib/format";
 import AddDeviceModal from "./AddDeviceModal";
 import EditDeviceModal from "./EditDeviceModal";
 
@@ -51,7 +52,7 @@ export default function DevicesPage() {
 
     const handleDisable = async (device: Device) => {
         const confirmed = window.confirm(
-            `Disable "${device.name}"? It will no longer appear in this list.`
+            `Disable "${device.name}" ? It will no longer appear in this list.`
         );
         if (!confirmed) return;
 
@@ -109,11 +110,11 @@ export default function DevicesPage() {
                                 <td className="p-3">
                                     <StatusBadge status={d.current_status?.status} />
                                 </td>
-                                <td className="p-3 tabular-nums text-slate-600 dark:text-slate-300">
-                                    {d.metrics?.temperature != null ? `${d.metrics.temperature}°C` : '—'}
+                                <td className="px-4 py-4 text-slate-900 dark:text-slate-100 font-medium">
+                                    {d.metrics?.temperature != null ? `${formatTemperature(d.metrics.temperature)}°C` : '—'}
                                 </td>
                                 <td className="p-3 tabular-nums text-slate-600 dark:text-slate-300">
-                                    {d.metrics?.humidity != null ? `${d.metrics.humidity}%` : '—'}
+                                    {d.metrics?.humidity != null ? `${d.metrics.humidity}% ` : '—'}
                                 </td>
                                 <td className="p-3 text-right text-xs text-slate-500 tabular-nums">
                                     {formatLastSeen(d.latest_telemetry?.occurred_at)}

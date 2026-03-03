@@ -2,6 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+    :root {
+        --color-slate-50: 248 250 252;
+        --color-slate-100: 241 245 249;
+        --color-slate-200: 226 232 240;
+        --color-slate-300: 203 213 225;
+        --color-slate-400: 148 163 184;
+        --color-slate-500: 100 116 139;
+        --color-slate-600: 71 85 105;
+        --color-slate-700: 51 65 85;
+        --color-slate-800: 30 41 59;
+        --color-slate-900: 15 23 42;
+        --color-slate-950: 2 6 23;
+    }
+
+    /* Sand Theme Overrides (Warm Neutrals) */
+    .sand {
+        --color-slate-50: 250 249 246;
+        /* warmer slightly off-white */
+        --color-slate-100: 243 241 235;
+        /* light sand */
+        --color-slate-200: 227 223 214;
+        --color-slate-300: 211 206 195;
+        --color-slate-400: 168 159 145;
+        --color-slate-500: 133 124 109;
+        --color-slate-600: 102 94 81;
+        --color-slate-700: 77 71 61;
+        --color-slate-800: 51 47 41;
+        /* deep warm grey */
+        --color-slate-900: 36 33 28;
+        /* darker warm */
+        --color-slate-950: 20 18 15;
+    }
+}
+
+
 /* Global scrollbar adjustments */
 html {
     scrollbar-width: thin;

@@ -36,6 +36,8 @@ import adminClientRoutes from './routes/admin/clients';
 import adminUserRoutes from './routes/admin/users';
 import adminAuthPlugin from './plugins/admin-auth';
 
+import reportsRoutes from './routes/reports';
+
 import authRoutes from './routes/auth';
 
 import authPlugin from './plugins/auth';
@@ -72,6 +74,7 @@ const start = async () => {
         fastify.register(import('./routes/device-rules.js').then(m => m.default), { prefix: '/api/v1' });
         fastify.register(dashboardRoutes, { prefix: '/api/v1/dashboard' }); // Note prefix includes /dashboard
         fastify.register(import('./routes/users.js').then(m => m.default), { prefix: '/api/v1/users' });
+        fastify.register(reportsRoutes, { prefix: '/api/v1/reports' });
 
         // Admin routes
         fastify.register(async (app) => {
