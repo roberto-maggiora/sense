@@ -94,10 +94,10 @@ services:
       REDIS_URL: redis://redis:6379
       PORT: 3001
       JWT_SECRET: ${JWT_SECRET:-fallback-secret-for-dev-only}
-      SMTP_HOST: smtp.gmail.com
-      SMTP_PORT: 587
-      SMTP_USER: roberto@senseapplications.com
-      SMTP_PASS: "efimvksngmoafbuz"
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
       SMTP_FROM: "Sense Alerts <roberto@senseapplications.com>"
     env_file:
       - .env
