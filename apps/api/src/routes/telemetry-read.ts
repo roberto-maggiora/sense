@@ -124,13 +124,13 @@ export default async function telemetryReadRoutes(fastify: FastifyInstance) {
             take
         });
 
-        // Map to DTO
         return events.map(e => {
             const payload = e.payload as any;
             return {
                 occurred_at: e.occurred_at,
                 received_at: e.received_at,
                 metrics: payload.metrics || [],
+                payload: payload,
                 source: e.source,
                 idempotency_key: e.idempotency_key
             };

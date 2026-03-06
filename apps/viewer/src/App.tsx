@@ -10,6 +10,7 @@ import AdminUsersPage from "./pages/AdminUsers";
 import LoginPage from "./pages/Login";
 import MyCompanyUsersPage from "./pages/MyCompanyUsers";
 import ReportsPage from "./pages/Reports";
+import ReportCenterPage from "./pages/ReportCenter";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { isSuperAdmin, canManageCompanyUsers } from "./lib/roles";
 
@@ -102,7 +103,8 @@ export default function App() {
               <Route path="/sites" element={<SitesPage />} />
               <Route path="/alerts" element={<AlertsPage />} />
               <Route path="/device/:id" element={<DeviceDetails />} />
-              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/reports" element={<ReportCenterPage />} />
+              <Route path="/reports/asset-compliance" element={<ReportsPage />} />
             </Route>
             <Route path="/my-company/users" element={<ClientAdminRoute><MyCompanyUsersPage /></ClientAdminRoute>} />
             <Route path="/admin/clients" element={<SuperAdminRoute><AdminClientsPage /></SuperAdminRoute>} />

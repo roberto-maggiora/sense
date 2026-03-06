@@ -1,7 +1,142 @@
 import { FastifyInstance } from 'fastify';
 import { prisma, listDevicesNeedingBatteryReplacement, listHubsWithStatus } from '@sense/database';
+import { segmentBreaches, computeStats } from '../services/reportService';
 
 export default async function dashboardRoutes(fastify: FastifyInstance) {
+    fastify.get('/compliance', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
+        const clientId = request.clientId as string;
+        const { site_id, area_id, period = 'today', metric = 'temperature' } = request.query as { site_id?: string; area_id?: string; period?: string; metric?: string };
+
+        const hours = period === '7d' ? 7 * 24 : 24;
+        const fromTime = new Date(Date.now() - hours * 60 * 60 * 1000);
+        const toTime = new Date();
+
+        try {
+            const devicesWithRules = await prisma.deviceAlarmRule.findMany({
+                where: {
+                    metric: metric,
+                    enabled: true,
+                    device: {
+                        client_id: clientId,
+                        disabled_at: null,
+                        ...(site_id ? { site_id } : {}),
+                        ...(area_id ? { area_id } : {})
+                    }
+                },
+                select: {
+                    device_id: true,
+                    operator: true,
+                    threshold: true
+                }
+            });
+
+            request.log.info({ rulesCount: devicesWithRules.length, devicesWithRules }, "Prisma rules fetch result");
+
+            if (devicesWithRules.length === 0) {
+
+                return {
+                    metric,
+                    period,
+                    has_rules: false,
+                    compliance_percent: null,
+                    total_minutes: 0,
+                    out_of_range_minutes: 0,
+                    contributing_devices: 0
+                };
+            }
+
+            const deviceRules: Record<string, { min: number | null, max: number | null }> = {};
+            for (const row of devicesWithRules) {
+                if (!deviceRules[row.device_id]) {
+                    deviceRules[row.device_id] = { min: null, max: null };
+                }
+                if (row.operator === 'lt' || row.operator === 'lte') {
+                    if (deviceRules[row.device_id].min === null || row.threshold > deviceRules[row.device_id].min!) {
+                        deviceRules[row.device_id].min = row.threshold;
+                    }
+                } else if (row.operator === 'gt' || row.operator === 'gte') {
+                    if (deviceRules[row.device_id].max === null || row.threshold < deviceRules[row.device_id].max!) {
+                        deviceRules[row.device_id].max = row.threshold;
+                    }
+                }
+            }
+
+            const deviceIds = Object.keys(deviceRules);
+
+            const telemetry = await prisma.telemetryEvent.findMany({
+                where: {
+                    client_id: clientId,
+                    device_id: { in: deviceIds },
+                    occurred_at: { gte: fromTime }
+                },
+                select: {
+                    device_id: true,
+                    occurred_at: true,
+                    payload: true
+                },
+                orderBy: { occurred_at: 'asc' }
+            });
+
+            const telemetryByDevice: Record<string, { occurred_at: Date; value: number }[]> = {};
+            for (const t of telemetry) {
+                const payload = t.payload as any;
+                let tempVal: number | null = null;
+
+                const metricsArray = payload.metrics || payload.raw?.metrics;
+                if (Array.isArray(metricsArray)) {
+                    const found = metricsArray.find((m: any) => m?.parameter === metric);
+                    if (found && typeof found.value === 'number') tempVal = found.value;
+                }
+                if (tempVal === null && typeof payload[metric] === 'number') tempVal = payload[metric];
+                if (tempVal === null && typeof payload.raw?.data?.payload?.[metric] === 'number') tempVal = payload.raw.data.payload[metric];
+
+                if (tempVal !== null) {
+                    if (!telemetryByDevice[t.device_id]) {
+                        telemetryByDevice[t.device_id] = [];
+                    }
+                    telemetryByDevice[t.device_id].push({ occurred_at: t.occurred_at, value: tempVal });
+                }
+            }
+
+            let total_time_ms = 0;
+            let out_of_range_ms = 0;
+            let contributing_devices = 0;
+
+            for (const deviceId of deviceIds) {
+                const points = telemetryByDevice[deviceId] || [];
+                if (points.length === 0) continue;
+
+                const rules = deviceRules[deviceId];
+                const breaches = segmentBreaches(points, rules.min, rules.max, 10);
+                const stats = computeStats(points, breaches, fromTime, toTime);
+
+                total_time_ms += stats.totalTimeWindowMs;
+                out_of_range_ms += stats.totalTimeOutsideMs;
+                contributing_devices++;
+            }
+
+            const total_minutes = Math.round(total_time_ms / 60000);
+            const out_of_range_minutes = Math.round(out_of_range_ms / 60000);
+
+            let compliance_percent = 100;
+            if (total_minutes > 0) {
+                compliance_percent = Math.max(0, Math.min(100, ((total_minutes - out_of_range_minutes) / total_minutes) * 100));
+            }
+
+            return {
+                metric,
+                period,
+                has_rules: true,
+                compliance_percent: Number(compliance_percent.toFixed(2)),
+                total_minutes,
+                out_of_range_minutes,
+                contributing_devices
+            };
+        } catch (error) {
+            request.log.error(error, 'Error fetching dashboard compliance');
+            return reply.code(500).send({ error: 'Internal Server Error' });
+        }
+    });
     fastify.get('/summary', { preHandler: [fastify.requireClientId] }, async (request, reply) => {
         const clientId = request.clientId as string;
         const { site_id, area_id } = request.query as { site_id?: string; area_id?: string };
@@ -156,9 +291,9 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                 FROM (
                     SELECT payload, occurred_at, received_at
                     FROM "telemetry_events"
-                    WHERE device_id = d.id
+                    WHERE device_id = d.id AND occurred_at >= NOW() - INTERVAL '7 days'
                     ORDER BY GREATEST(occurred_at, received_at) DESC
-                    LIMIT 50
+                    LIMIT 200
                 ) sub
             ) t ON true
             LEFT JOIN LATERAL (
@@ -196,6 +331,8 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                 let lastOccurredAt: string | null = null;
                 let latestPayload: any = null;
                 let availableMetrics: string[] = [];
+                let metricValues: Record<string, number | null> = {};
+                let device_category: 'environmental' | 'operational' = 'environmental';
 
                 if (row.recent_telemetry) {
                     const telemetryArray = typeof row.recent_telemetry === 'string'
@@ -205,6 +342,42 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                     if (Array.isArray(telemetryArray) && telemetryArray.length > 0) {
                         lastOccurredAt = telemetryArray[0].occurred_at;
                         latestPayload = telemetryArray[0].payload;
+
+                        // Identify if a payload is purely battery related
+                        const isBatteryOnlyPayload = (payload: any) => {
+                            if (!payload) return true;
+                            const metricsArray = payload.metrics || payload.raw?.metrics;
+                            if (Array.isArray(metricsArray) && metricsArray.length > 0) {
+                                return metricsArray.every((m: any) =>
+                                    ['battery', 'battery_percent', 'battery_raw'].includes(m.parameter) ||
+                                    (m.unit === '%' && m.parameter?.includes('battery'))
+                                );
+                            }
+                            // Fallback to checking keys
+                            const keys = Object.keys(payload).filter(k => k !== 'metrics' && k !== 'raw' && k !== 'topic');
+                            if (keys.length > 0) {
+                                return keys.every(k => k.includes('battery'));
+                            }
+                            return false;
+                        };
+
+                        // Fix Milesight split packets: if latest is battery-only, look back 15s for measurement
+                        if (lastOccurredAt && isBatteryOnlyPayload(latestPayload)) {
+                            const latestTime = new Date(lastOccurredAt).getTime();
+                            for (let i = 1; i < telemetryArray.length; i++) {
+                                const ev = telemetryArray[i];
+                                const evTime = new Date(ev.occurred_at).getTime();
+                                if (latestTime - evTime <= 15000) {
+                                    if (!isBatteryOnlyPayload(ev.payload)) {
+                                        lastOccurredAt = ev.occurred_at;
+                                        latestPayload = ev.payload;
+                                        break;
+                                    }
+                                } else {
+                                    break; // Outside window, give up finding a pair
+                                }
+                            }
+                        }
 
                         for (const event of telemetryArray) {
                             const payload = event.payload;
@@ -256,12 +429,78 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                             // Fallbacks
                             if (typeof payload.temperature === 'number') metricSet.add('temperature');
                             if (typeof payload.humidity === 'number') metricSet.add('humidity');
+                            if (typeof payload.co2 === 'number' || typeof payload.concentration === 'number') metricSet.add('co2');
+                            if (typeof payload.barometric_pressure === 'number') metricSet.add('barometric_pressure');
+
+                            if (typeof payload.raw?.data?.payload?.temperature === 'number') metricSet.add('temperature');
+                            if (typeof payload.raw?.data?.payload?.humidity === 'number') metricSet.add('humidity');
+                            if (typeof payload.raw?.data?.payload?.co2 === 'number' || typeof payload.raw?.data?.payload?.concentration === 'number') metricSet.add('co2');
+                            if (typeof payload.raw?.data?.payload?.barometric_pressure === 'number') metricSet.add('barometric_pressure');
                         }
 
                         const allMetrics = Array.from(metricSet);
-                        const hasTemp = allMetrics.includes('temperature');
-                        const otherMetrics = allMetrics.filter(m => m !== 'temperature').sort();
-                        availableMetrics = hasTemp ? ['temperature', ...otherMetrics] : otherMetrics;
+
+                        // Stable sorting order for primary metrics
+                        const primaryOrder = ['temperature', 'humidity', 'co2', 'barometric_pressure', 'door_contact', 'active_power', 'power_consumption', 'voltage', 'current', 'power_factor'];
+
+                        // Separate primary metrics from others
+                        const sortedPrimary = primaryOrder.filter(m => allMetrics.includes(m));
+                        const otherMetrics = allMetrics.filter(m => !primaryOrder.includes(m)).sort();
+
+                        availableMetrics = [...sortedPrimary, ...otherMetrics];
+
+                        for (const m of availableMetrics) {
+                            metricValues[m] = null;
+                            for (const event of telemetryArray) {
+                                const payload = event.payload;
+                                if (!payload) continue;
+                                let val = null;
+                                const metricsArray = payload.metrics || payload.raw?.metrics;
+                                if (Array.isArray(metricsArray)) {
+                                    const found = metricsArray.find((x: any) => x?.parameter === m);
+                                    if (found && typeof found.value === 'number') val = found.value;
+                                }
+                                if (val == null && typeof payload[m] === 'number') val = payload[m];
+                                if (val == null && m === 'co2' && typeof payload.concentration === 'number') val = payload.concentration;
+                                if (val == null && typeof payload.raw?.data?.payload?.[m] === 'number') val = payload.raw.data.payload[m];
+                                if (val == null && m === 'co2' && typeof payload.raw?.data?.payload?.concentration === 'number') val = payload.raw.data.payload.concentration;
+                                if (val == null && typeof payload.raw?.payload?.[m] === 'number') val = payload.raw.payload[m];
+                                if (val == null && m === 'co2' && typeof payload.raw?.payload?.concentration === 'number') val = payload.raw.payload.concentration;
+
+                                if (val !== null) {
+                                    metricValues[m] = val;
+                                    break; // found newest value for this metric (since telemetryArray is newest-first)
+                                }
+                            }
+                        }
+
+                        if (metricValues['voltage'] != null || metricValues['active_power'] != null) {
+                            const v = metricValues['voltage'] ?? 0;
+                            const p = metricValues['active_power'] ?? 0;
+                            const power_present = (v > 20 || p > 1) ? 1 : 0;
+
+                            metricValues['power_present'] = power_present;
+                            if (!availableMetrics.includes('power_present')) {
+                                availableMetrics.push('power_present');
+                            }
+                        }
+
+                        const envMetrics = ['temperature', 'humidity', 'co2', 'barometric_pressure'];
+                        const opMetrics = ['door_contact', 'power_present', 'leak_detected', 'motion', 'vibration'];
+
+                        const envCount = envMetrics.filter(m => availableMetrics.includes(m)).length;
+                        const hasOp = availableMetrics.some(m => opMetrics.includes(m));
+                        const hasDoor = availableMetrics.includes('door_contact');
+
+                        if (hasDoor) {
+                            device_category = 'operational';
+                        } else if (envCount >= 2) {
+                            device_category = 'environmental';
+                        } else if (hasOp) {
+                            device_category = 'operational';
+                        } else {
+                            device_category = 'environmental';
+                        }
                     }
                 }
 
@@ -278,6 +517,7 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                     source: row.source,
                     external_id: row.external_id,
                     name: row.name,
+                    device_category,
                     disabled_at: row.disabled_at,
                     created_at: row.created_at,
 
@@ -312,6 +552,7 @@ export default async function dashboardRoutes(fastify: FastifyInstance) {
                         battery_updated_at: row.battery_updated_at ?? null,
                     },
 
+                    metric_values: metricValues,
                     available_metrics: availableMetrics
                 };
             });

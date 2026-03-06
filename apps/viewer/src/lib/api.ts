@@ -245,6 +245,24 @@ export async function getDashboardSummary(filters?: { site_id?: string; area_id?
     return fetchClient(`/api/v1/dashboard/summary?${params.toString()}`);
 }
 
+export type ComplianceSummary = {
+    metric: string;
+    period: 'today' | '7d';
+    has_rules: boolean;
+    compliance_percent: number | null;
+    total_minutes: number;
+    out_of_range_minutes: number;
+    contributing_devices: number;
+};
+
+export async function getDashboardCompliance(period: 'today' | '7d', metric: string = 'temperature', filters?: { site_id?: string; area_id?: string }): Promise<ComplianceSummary> {
+    const params = new URLSearchParams({ period, metric });
+    if (filters?.site_id) params.append('site_id', filters.site_id);
+    if (filters?.area_id) params.append('area_id', filters.area_id);
+
+    return fetchClient(`/api/v1/dashboard/compliance?${params.toString()}`);
+}
+
 export async function getDashboardDevices(filters?: { site_id?: string; area_id?: string; limit?: number }): Promise<{ data: any[] }> {
     const params = new URLSearchParams();
     if (filters?.site_id) params.append('site_id', filters.site_id);

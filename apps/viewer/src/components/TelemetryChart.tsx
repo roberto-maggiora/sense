@@ -9,6 +9,7 @@ import {
     ReferenceLine
 } from "recharts";
 import { useMemo } from "react";
+import { getMetricMeta, formatMetricValue } from "../lib/metrics";
 
 type DataPoint = {
     timestamp: string;
@@ -17,13 +18,15 @@ type DataPoint = {
 
 type TelemetryChartProps = {
     data: DataPoint[];
+    parameter?: string;
     label: string;
     unit: string;
     color?: string;
+    decimals?: number;
     thresholds?: { value: number; label: string; operator?: string }[];
 };
 
-export default function TelemetryChart({ data, label, unit, color = "#3b82f6", thresholds = [] }: TelemetryChartProps) {
+export default function TelemetryChart({ data, parameter, label, unit, color = "#3b82f6", decimals = 1, thresholds = [] }: TelemetryChartProps) {
     const stats = useMemo(() => {
         if (!data.length) return { min: 0, max: 0, avg: 0, last: 0 };
         const values = data.map((d) => d.value).filter((v): v is number => v != null);
@@ -34,6 +37,9 @@ export default function TelemetryChart({ data, label, unit, color = "#3b82f6", t
         const last = values[values.length - 1];
         return { min, max, avg, last };
     }, [data]);
+
+    const isDiscrete = parameter ? getMetricMeta(parameter).kind === 'discrete' : false;
+    const fmt = (v: number) => isDiscrete ? formatMetricValue(v, parameter!) : v.toFixed(decimals);
 
     const formatDate = (iso: string) => {
         const d = new Date(iso);
@@ -54,21 +60,21 @@ export default function TelemetryChart({ data, label, unit, color = "#3b82f6", t
                 <div>
                     <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</h3>
                     <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
-                        {stats.last.toFixed(1)} <span className="text-base font-normal text-slate-500 dark:text-slate-400">{unit}</span>
+                        {fmt(stats.last)} <span className="text-base font-normal text-slate-500 dark:text-slate-400">{unit}</span>
                     </div>
                 </div>
                 <div className="flex gap-4 text-xs text-slate-500 dark:text-slate-400 text-right">
                     <div>
                         <div className="uppercase tracking-wide opacity-70">High</div>
-                        <div className="font-semibold text-slate-700 dark:text-slate-300">{stats.max.toFixed(1)}{unit}</div>
+                        <div className="font-semibold text-slate-700 dark:text-slate-300">{fmt(stats.max)}{unit}</div>
                     </div>
                     <div>
                         <div className="uppercase tracking-wide opacity-70">Low</div>
-                        <div className="font-semibold text-slate-700 dark:text-slate-300">{stats.min.toFixed(1)}{unit}</div>
+                        <div className="font-semibold text-slate-700 dark:text-slate-300">{fmt(stats.min)}{unit}</div>
                     </div>
                     <div>
                         <div className="uppercase tracking-wide opacity-70">Avg</div>
-                        <div className="font-semibold text-slate-700 dark:text-slate-300">{stats.avg.toFixed(1)}{unit}</div>
+                        <div className="font-semibold text-slate-700 dark:text-slate-300">{fmt(stats.avg)}{unit}</div>
                     </div>
                 </div>
             </div>
@@ -91,22 +97,24 @@ export default function TelemetryChart({ data, label, unit, color = "#3b82f6", t
                             fontSize={11}
                             tickLine={false}
                             axisLine={false}
-                            domain={[
-                                (dataMin: number) => {
-                                    const minThreshold = thresholds.length ? Math.min(...thresholds.map(t => t.value)) : Infinity;
-                                    const absoluteMin = Math.min(dataMin, minThreshold);
-                                    if (absoluteMin === Infinity) return 'auto';
-                                    const padding = label === 'humidity' ? 2 : 0.5;
-                                    return Math.max(0, absoluteMin - padding); // don't pad below 0 for typical env metrics
-                                },
-                                (dataMax: number) => {
-                                    const maxThreshold = thresholds.length ? Math.max(...thresholds.map(t => t.value)) : -Infinity;
-                                    const absoluteMax = Math.max(dataMax, maxThreshold);
-                                    if (absoluteMax === -Infinity) return 'auto';
-                                    const padding = label === 'humidity' ? 2 : 0.5;
-                                    return absoluteMax + padding;
-                                }
-                            ]}
+                            tickFormatter={isDiscrete ? (v) => fmt(v) : (v) => v.toFixed(decimals)}
+                            domain={
+                                isDiscrete ? [-0.1, 1.1] : [
+                                    (dataMin: number) => {
+                                        const minThreshold = thresholds.length ? Math.min(...thresholds.map(t => t.value)) : Infinity;
+                                        const absoluteMin = Math.min(dataMin, minThreshold);
+                                        if (absoluteMin === Infinity) return 'auto';
+                                        const padding = 2;
+                                        return Math.max(0, absoluteMin - padding);
+                                    },
+                                    (dataMax: number) => {
+                                        const maxThreshold = thresholds.length ? Math.max(...thresholds.map(t => t.value)) : -Infinity;
+                                        const absoluteMax = Math.max(dataMax, maxThreshold);
+                                        if (absoluteMax === -Infinity) return 'auto';
+                                        const padding = 2;
+                                        return absoluteMax + padding;
+                                    }
+                                ]}
                         />
                         {thresholds.map((t, i) => {
                             const isMax = t.operator === 'gt' || t.operator === 'gte';
@@ -126,11 +134,12 @@ export default function TelemetryChart({ data, label, unit, color = "#3b82f6", t
                         <Tooltip
                             content={({ active, payload, label }) => {
                                 if (active && payload && payload.length) {
+                                    const val = payload[0].value as number | null;
                                     return (
                                         <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2 rounded shadow-lg text-xs">
                                             <div className="text-slate-500 dark:text-slate-400 mb-1">{label ? new Date(label).toLocaleString() : ''}</div>
                                             <div className="font-semibold text-slate-900 dark:text-white">
-                                                {payload[0].value} {unit}
+                                                {val != null ? fmt(val) : '—'}{unit}
                                             </div>
                                         </div>
                                     );

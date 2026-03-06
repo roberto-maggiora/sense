@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { formatTemperature } from "../lib/format";
 import TelemetryChart from "./TelemetryChart";
-import { fetchClient, listDeviceRules } from "../lib/api"; // adjust path if needed
+import { fetchClient, listDeviceRules } from "../lib/api";
+import { getMetricMeta, formatMetricValue } from "../lib/metrics";
 
 type TemperatureHistoryCardProps = {
     deviceId: string;
@@ -13,27 +13,50 @@ export type ChartPoint = {
     value: number | null;
 };
 
+function getStorageKey(deviceId: string) {
+    return `chartMetric:${deviceId}`;
+}
+
 export default function TemperatureHistoryCard({ deviceId, availableMetrics }: TemperatureHistoryCardProps) {
-    const defaultMetric = availableMetrics?.[0] || "temperature";
-    const [selectedMetric, setSelectedMetric] = useState<string>(defaultMetric);
-    // Sync state if availableMetrics changes
-    useEffect(() => {
-        if (availableMetrics?.length && !availableMetrics.includes(selectedMetric)) {
-            setSelectedMetric(availableMetrics[0]);
-        }
-    }, [availableMetrics]);
+    // Determine initial metric: localStorage → first available → temperature
+    const getInitialMetric = () => {
+        const stored = localStorage.getItem(getStorageKey(deviceId));
+        if (stored && availableMetrics?.includes(stored)) return stored;
+        return availableMetrics?.[0] || "temperature";
+    };
+
+    const [selectedMetric, setSelectedMetric] = useState<string>(getInitialMetric);
     const [timeRange, setTimeRange] = useState<"24h" | "7d">("24h");
-    console.log("TemperatureHistoryCard mounted for", deviceId);
     const [chartData, setChartData] = useState<ChartPoint[]>([]);
     const [loading, setLoading] = useState(false);
-    const [avgTemp, setAvgTemp] = useState<number | null>(null); // Added state for avgTemp
-    const [thresholds, setThresholds] = useState<{ value: number; label: string }[]>([]);
+    const [avgValue, setAvgValue] = useState<number | null>(null);
+    const [thresholds, setThresholds] = useState<{ value: number; label: string; operator: string }[]>([]);
+
+    // Sync state if availableMetrics changes (e.g. device reloaded)
+    useEffect(() => {
+        if (availableMetrics?.length && !availableMetrics.includes(selectedMetric)) {
+            const stored = localStorage.getItem(getStorageKey(deviceId));
+            if (stored && availableMetrics.includes(stored)) {
+                setSelectedMetric(stored);
+            } else {
+                setSelectedMetric(availableMetrics[0]);
+            }
+        }
+    }, [availableMetrics, deviceId]);
+
+    // Persist selection
+    const handleSelectMetric = (metric: string) => {
+        setSelectedMetric(metric);
+        localStorage.setItem(getStorageKey(deviceId), metric);
+    };
+
+    const metricMeta = getMetricMeta(selectedMetric);
 
     useEffect(() => {
         const load = async () => {
             if (!deviceId) return;
             setLoading(true);
-            setAvgTemp(null); // Reset avgTemp on new load
+            setAvgValue(null);
 
             try {
                 const now = new Date();
@@ -43,50 +66,58 @@ export default function TemperatureHistoryCard({ deviceId, availableMetrics }: T
                         : now.getTime() - 7 * 24 * 60 * 60 * 1000
                 );
 
-                // Your Fastify route returns an array of events:
-                // [{ occurred_at, received_at, metrics: [...], ...}, ...]
                 const res = await fetchClient(
                     `/api/v1/devices/${deviceId}/telemetry?from=${encodeURIComponent(
                         from.toISOString()
                     )}&to=${encodeURIComponent(now.toISOString())}&limit=500`
                 );
 
-                // fetchClient might return either the raw array OR { data: [...] }
                 const events = Array.isArray(res) ? res : res?.data;
 
-                // Use selectedMetric for parsing the array
                 const mapped: ChartPoint[] = (events || []).map((e: any) => {
-                    const foundMetric = Array.isArray(e.metrics)
-                        ? e.metrics.find((m: any) => m?.parameter === selectedMetric)
-                        : null;
+                    let val: number | null = null;
+
+                    if (Array.isArray(e.metrics)) {
+                        const found = e.metrics.find((m: any) => m?.parameter === selectedMetric);
+                        if (found && typeof found.value === 'number') val = found.value;
+                    }
+                    if (val == null && e.payload) {
+                        const p = e.payload;
+                        if (typeof p[selectedMetric] === 'number') val = p[selectedMetric];
+                        else if (selectedMetric === 'co2' && typeof p.concentration === 'number') val = p.concentration;
+                        else if (typeof p.raw?.data?.payload?.[selectedMetric] === 'number') val = p.raw.data.payload[selectedMetric];
+                        else if (selectedMetric === 'co2' && typeof p.raw?.data?.payload?.concentration === 'number') val = p.raw.data.payload.concentration;
+                    }
 
                     return {
                         timestamp: e.occurred_at,
-                        value: foundMetric?.value ?? null
+                        value: val,
                     };
                 });
 
-                // API returns newest-first (orderBy desc). Chart usually wants oldest-first.
+                // API returns newest-first. Chart wants oldest-first.
                 setChartData(mapped.reverse());
 
-                // Calculate average value
                 const validVals = mapped.filter(p => p.value !== null).map(p => p.value as number);
                 if (validVals.length > 0) {
-                    const sum = validVals.reduce((acc, val) => acc + val, 0);
-                    setAvgTemp(sum / validVals.length);
+                    setAvgValue(validVals.reduce((a, b) => a + b, 0) / validVals.length);
                 } else {
-                    setAvgTemp(null);
+                    setAvgValue(null);
                 }
 
-                // Fetch rules to build thresholds
+                // Build threshold reference lines from rules for this metric
                 const rules = await listDeviceRules(deviceId);
                 const tempThresholds: { value: number; label: string; operator: string }[] = [];
                 for (const r of rules) {
                     if (r.metric === selectedMetric && r.enabled) {
                         const val = Number(r.threshold);
-                        const unit = selectedMetric === 'humidity' ? '%' : '°C';
                         if (!isNaN(val)) {
-                            const lbl = (r.operator === "gt" || r.operator === "gte") ? `Max ${val}${unit}` : (r.operator === "lt" || r.operator === "lte") ? `Min ${val}${unit}` : `${val}${unit}`;
+                            const lbl =
+                                (r.operator === "gt" || r.operator === "gte")
+                                    ? `Max ${val}${metricMeta.unitSuffix}`
+                                    : (r.operator === "lt" || r.operator === "lte")
+                                        ? `Min ${val}${metricMeta.unitSuffix}`
+                                        : `${val}${metricMeta.unitSuffix}`;
                             if (!tempThresholds.find(t => t.value === val)) {
                                 tempThresholds.push({ value: val, label: lbl, operator: r.operator });
                             }
@@ -94,11 +125,10 @@ export default function TemperatureHistoryCard({ deviceId, availableMetrics }: T
                     }
                 }
                 setThresholds(tempThresholds);
-
             } catch (err) {
                 console.error("Failed to load telemetry OR rules", err);
                 setChartData([]);
-                setAvgTemp(null);
+                setAvgValue(null);
                 setThresholds([]);
             } finally {
                 setLoading(false);
@@ -112,17 +142,17 @@ export default function TemperatureHistoryCard({ deviceId, availableMetrics }: T
         <section className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-white/10 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white capitalize">
-                        {selectedMetric.replace('_', ' ')} History
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                        {metricMeta.label} History
                     </h2>
                     {availableMetrics && availableMetrics.length > 1 && (
                         <select
                             value={selectedMetric}
-                            onChange={e => setSelectedMetric(e.target.value)}
-                            className="text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-md py-1 px-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer capitalize"
+                            onChange={e => handleSelectMetric(e.target.value)}
+                            className="text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-md py-1 px-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer"
                         >
                             {availableMetrics.map(m => (
-                                <option key={m} value={m}>{m.replace('_', ' ')}</option>
+                                <option key={m} value={m}>{getMetricMeta(m).label}</option>
                             ))}
                         </select>
                     )}
@@ -130,13 +160,11 @@ export default function TemperatureHistoryCard({ deviceId, availableMetrics }: T
 
                 <div className="flex items-center gap-3">
                     {loading && (
-                        <span className="text-xs text-slate-500 dark:text-slate-400">
-                            Loading…
-                        </span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">Loading…</span>
                     )}
-                    {!loading && avgTemp !== null && (
+                    {!loading && avgValue !== null && (
                         <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">
-                            {avgTemp != null ? `${formatTemperature(avgTemp)}${selectedMetric === 'humidity' ? '%' : '°C'}` : '—'}
+                            {formatMetricValue(avgValue, selectedMetric)}{metricMeta.unitSuffix}
                         </div>
                     )}
 
@@ -166,8 +194,10 @@ export default function TemperatureHistoryCard({ deviceId, availableMetrics }: T
             <div className="-mx-2">
                 <TelemetryChart
                     data={chartData}
-                    label={selectedMetric}
-                    unit={selectedMetric === 'humidity' ? '%' : '°C'}
+                    parameter={selectedMetric}
+                    label={metricMeta.label}
+                    unit={metricMeta.unitSuffix}
+                    decimals={metricMeta.decimals}
                     color={timeRange === "24h" ? "#3b82f6" : "#8b5cf6"}
                     thresholds={thresholds}
                 />

@@ -127,13 +127,16 @@ export default async function ingestHawkRoutes(fastify: FastifyInstance) {
                 const serial = frame.payload?.serial;
                 if (serial) {
                     const clientId = frame.clientId;
-                    if (clientId) {
-                        const occurredAt = hawkTimestampToIso(frame.payload?.timestamp) ?? new Date().toISOString();
-                        await updateHubHeartbeat(clientId, serial, occurredAt).catch((err: any) => {
-                            request.log.error({ err, serial, clientId }, 'Failed to update hub heartbeat');
-                        });
-                    } else {
-                        request.log.warn({ serial }, 'HAWK HEARTBEAT missing clientId scoped to hub');
+                    const occurredAt = hawkTimestampToIso(frame.payload?.timestamp) ?? new Date().toISOString();
+                    const fw = frame.payload?.fw;
+
+                    try {
+                        const updatedCount = await recordHubHeartbeat(serial, fw, new Date(occurredAt).getTime());
+                        if (updatedCount === 0) {
+                            request.log.warn({ serial }, 'Unknown hub serial in heartbeat');
+                        }
+                    } catch (err: any) {
+                        request.log.error({ err, serial, clientId }, 'Failed to update hub heartbeat');
                     }
                 }
 

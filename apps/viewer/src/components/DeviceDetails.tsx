@@ -263,6 +263,16 @@ export default function DeviceDetails() {
                         </div>
                     )}
 
+                    <Link
+                        to={`/reports/asset-compliance?deviceId=${device?.id}`}
+                        title="Generate report"
+                        className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition-colors shadow-sm cursor-pointer"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                    </Link>
+
                     <div className="flex items-center gap-3 shrink-0 border-l border-slate-200 dark:border-white/10 pl-6">
                         <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
                             {device?.metrics?.temperature != null ? `${formatTemperature(device.metrics.temperature)}°C` : '—'}

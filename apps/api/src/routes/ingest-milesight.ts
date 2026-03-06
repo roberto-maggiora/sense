@@ -229,6 +229,85 @@ function extractMetrics(item: MilesightWebhookItem): MetricV1[] {
         });
     }
 
+    const co2 = typeof payload.concentration === "number" ? payload.concentration : undefined;
+    if (co2 !== undefined) {
+        metrics.push({
+            parameter: "co2",
+            value: co2,
+            unit: "ppm",
+            status: "ok",
+            quality: "measured",
+        });
+    }
+
+    const pressure = typeof payload.barometric_pressure === "number" ? payload.barometric_pressure : undefined;
+    if (pressure !== undefined) {
+        metrics.push({
+            parameter: "barometric_pressure",
+            value: pressure,
+            unit: "hpa",
+            status: "ok",
+            quality: "measured",
+        });
+    }
+
+    // TS301 DOOR Magnet
+    if (payload.magnet_status_left !== undefined) {
+        const val = payload.magnet_status_left === "1" ? 1 : payload.magnet_status_left === "0" ? 0 : Number(payload.magnet_status_left);
+        if (!isNaN(val)) {
+            metrics.push({
+                parameter: "door_contact",
+                value: val,
+                unit: "state", // logical state
+                status: "ok",
+                quality: "measured",
+            });
+        }
+    }
+    const tempLeft = typeof payload.temperature_left === "number" ? payload.temperature_left : undefined;
+    if (tempLeft !== undefined && temp === undefined) { // Avoid duplicate if temp already extracted
+        metrics.push({
+            parameter: "temperature",
+            value: tempLeft,
+            unit: "celsius",
+            status: "ok",
+            quality: "measured",
+        });
+    }
+
+    // WS525 POWER Metrics
+    const activePower = typeof payload.active_power === "number" ? payload.active_power : undefined;
+    if (activePower !== undefined) {
+        metrics.push({ parameter: "active_power", value: activePower, unit: "watt", status: "ok", quality: "measured" });
+    }
+    const voltage = typeof payload.voltage === "number" ? payload.voltage : undefined;
+    if (voltage !== undefined) {
+        metrics.push({ parameter: "voltage", value: voltage, unit: "volt", status: "ok", quality: "measured" });
+    }
+    const current = typeof payload.current === "number" ? payload.current : undefined;
+    if (current !== undefined) {
+        metrics.push({ parameter: "current", value: current, unit: "ampere", status: "ok", quality: "measured" });
+    }
+    const powerFactor = typeof payload.power_factor === "number" ? payload.power_factor : undefined;
+    if (powerFactor !== undefined) {
+        metrics.push({ parameter: "power_factor", value: powerFactor, unit: "percent", status: "ok", quality: "measured" });
+    }
+    const energy = typeof payload.power_consumption === "number" ? payload.power_consumption : undefined;
+    if (energy !== undefined) {
+        metrics.push({ parameter: "power_consumption", value: energy, unit: "kwh", status: "ok", quality: "measured" });
+    }
+
+    const batt = typeof payload.battery === "number" ? payload.battery : undefined;
+    if (batt !== undefined) {
+        metrics.push({
+            parameter: "battery",
+            value: batt,
+            unit: "percent",
+            status: "ok",
+            quality: "measured",
+        });
+    }
+
     return metrics;
 }
 

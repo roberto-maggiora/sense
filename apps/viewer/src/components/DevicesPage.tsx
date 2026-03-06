@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getDashboardDevices, updateDevice } from "../lib/api";
 import { formatDeviceLocation } from "../lib/location";
-import { formatTemperature } from "../lib/format";
+import { getMetricMeta, formatMetricValue } from "../lib/metrics";
 import AddDeviceModal from "./AddDeviceModal";
 import EditDeviceModal from "./EditDeviceModal";
 
@@ -18,8 +18,9 @@ type Device = {
     manufacturer?: string | null;
     model?: string | null;
     current_status: { status: string } | null;
-    latest_telemetry: { occurred_at: string } | null;
-    metrics: { temperature: number | null; humidity: number | null };
+    latest_telemetry: { occurred_at: string; payload?: any } | null;
+    metrics: { temperature: number | null; humidity: number | null;[key: string]: number | string | null };
+    available_metrics?: string[];
 };
 
 export default function DevicesPage() {
@@ -29,6 +30,8 @@ export default function DevicesPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingDevice, setEditingDevice] = useState<Device | null>(null);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+    // metricsInScope removed to avoid table explosion
 
     const fetchDevices = async () => {
         try {
@@ -90,8 +93,8 @@ export default function DevicesPage() {
                             <th className="p-3">Name</th>
                             <th className="p-3">Location</th>
                             <th className="p-3">Status</th>
-                            <th className="p-3">Temp</th>
-                            <th className="p-3">Humidity</th>
+                            <th className="p-3">Primary Reading</th>
+                            <th className="p-3">Secondary Specs</th>
                             <th className="p-3 text-right">Last Seen</th>
                             <th className="p-3 text-right">Actions</th>
                         </tr>
@@ -110,11 +113,53 @@ export default function DevicesPage() {
                                 <td className="p-3">
                                     <StatusBadge status={d.current_status?.status} />
                                 </td>
-                                <td className="px-4 py-4 text-slate-900 dark:text-slate-100 font-medium">
-                                    {d.metrics?.temperature != null ? `${formatTemperature(d.metrics.temperature)}°C` : '—'}
+                                <td className="p-3">
+                                    {(() => {
+                                        const rawPrimary = localStorage.getItem(`chartMetric:${d.id}`);
+                                        const primaryMetric = (rawPrimary && d.available_metrics?.includes(rawPrimary))
+                                            ? rawPrimary
+                                            : (d.available_metrics?.[0] || 'temperature');
+
+                                        const payloadValues = (d as any).metric_values || {};
+                                        const val = payloadValues[primaryMetric];
+                                        const meta = getMetricMeta(primaryMetric);
+
+                                        return (
+                                            <div className="text-slate-900 dark:text-slate-100 font-medium tabular-nums text-sm">
+                                                {meta.label}: {val != null ? formatMetricValue(val, primaryMetric) : '—'} <span className="opacity-50 text-xs font-normal ml-0.5">{meta.unitSuffix}</span>
+                                            </div>
+                                        );
+                                    })()}
                                 </td>
-                                <td className="p-3 tabular-nums text-slate-600 dark:text-slate-300">
-                                    {d.metrics?.humidity != null ? `${d.metrics.humidity}% ` : '—'}
+                                <td className="p-3">
+                                    {(() => {
+                                        const rawPrimary = localStorage.getItem(`chartMetric:${d.id}`);
+                                        const primaryMetric = (rawPrimary && d.available_metrics?.includes(rawPrimary))
+                                            ? rawPrimary
+                                            : (d.available_metrics?.[0] || 'temperature');
+
+                                        const payloadValues = (d as any).metric_values || {};
+
+                                        const secondaryMetrics = (d.available_metrics || [])
+                                            .filter(m => m !== primaryMetric && m !== 'battery')
+                                            .slice(0, 3);
+
+                                        return (
+                                            <div className="flex flex-wrap gap-2 text-xs">
+                                                {secondaryMetrics.length === 0 && <span className="opacity-30">—</span>}
+                                                {secondaryMetrics.map(m => {
+                                                    const meta = getMetricMeta(m);
+                                                    const val = payloadValues[m];
+                                                    if (val == null) return null;
+                                                    return (
+                                                        <span key={m} className="px-2 py-1 bg-slate-100 border border-slate-200 dark:border-white/5 dark:bg-slate-800 rounded-md text-slate-600 dark:text-slate-300">
+                                                            {meta.label}: {formatMetricValue(val, m)}{meta.unitSuffix}
+                                                        </span>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })()}
                                 </td>
                                 <td className="p-3 text-right text-xs text-slate-500 tabular-nums">
                                     {formatLastSeen(d.latest_telemetry?.occurred_at)}
