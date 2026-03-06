@@ -974,15 +974,35 @@ export default function Dashboard() {
                                                     {(() => {
                                                         const payloadValues = (d as any).metric_values || {};
 
-                                                        // available_metrics is already canonically ordered by the backend
+                                                        // Fallback structure for preferences if displayLayout not imported yet (will import next)
+                                                        const prefsRaw = localStorage.getItem(`device_prefs_${d.id}`);
+                                                        const prefs = prefsRaw ? JSON.parse(prefsRaw) : { pinned_metrics: [], show_battery_on_card: true };
+
                                                         const validMetrics = (d.available_metrics || []).filter(m => m !== 'battery' && payloadValues[m] != null);
 
-                                                        const hasBattery = d.metrics?.battery_percent != null;
-                                                        const anyMetric = validMetrics.length > 0 || hasBattery;
+                                                        let visibleMetrics = validMetrics;
+
+                                                        if (prefs.pinned_metrics && prefs.pinned_metrics.length > 0) {
+                                                            const validPinned = prefs.pinned_metrics.filter((m: string) => validMetrics.includes(m));
+                                                            if (validPinned.length > 0) visibleMetrics = validPinned.slice(0, 2);
+                                                        } else if (validMetrics.length > 2) {
+                                                            const PRIORITY = ['temperature', 'co2', 'humidity', 'barometric_pressure'];
+                                                            visibleMetrics = [...validMetrics].sort((a, b) => {
+                                                                const idxA = PRIORITY.indexOf(a);
+                                                                const idxB = PRIORITY.indexOf(b);
+                                                                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                                                                if (idxA !== -1) return -1;
+                                                                if (idxB !== -1) return 1;
+                                                                return a.localeCompare(b);
+                                                            }).slice(0, 2);
+                                                        }
+
+                                                        const hasBattery = d.metrics?.battery_percent != null && prefs.show_battery_on_card !== false;
+                                                        const anyMetric = visibleMetrics.length > 0 || hasBattery;
 
                                                         return (
                                                             <>
-                                                                {validMetrics.map(metric => {
+                                                                {visibleMetrics.map(metric => {
                                                                     const meta = getMetricMeta(metric);
                                                                     return (
                                                                         <MetricChip
@@ -995,21 +1015,28 @@ export default function Dashboard() {
                                                                         />
                                                                     );
                                                                 })}
-                                                                {hasBattery && (
-                                                                    <MetricChip
-                                                                        parameter="battery"
-                                                                        icon={metricConfig.battery.icon}
-                                                                        value={d.metrics.battery_percent!}
-                                                                        unit={metricConfig.battery.unit}
-                                                                        title={`Battery raw: ${d.metrics.battery_raw ?? '?'}`}
-                                                                    />
-                                                                )}
                                                                 {!anyMetric && <span className="text-slate-400">—</span>}
                                                             </>
                                                         );
                                                     })()}
                                                 </div>
                                                 <div className="flex items-center gap-3">
+                                                    {(() => {
+                                                        const prefsRaw = localStorage.getItem(`device_prefs_${d.id}`);
+                                                        const showBattery = prefsRaw ? JSON.parse(prefsRaw).show_battery_on_card !== false : true;
+                                                        const hasBattery = d.metrics?.battery_percent != null && showBattery;
+                                                        return hasBattery ? (
+                                                            <div className="flex items-center gap-1 text-xs text-slate-400" title={`Battery raw: ${d.metrics.battery_raw ?? '?'}`}>
+                                                                <MetricChip
+                                                                    parameter="battery"
+                                                                    icon={metricConfig.battery.icon}
+                                                                    value={d.metrics.battery_percent!}
+                                                                    unit=""
+                                                                    className="gap-0.5"
+                                                                />
+                                                            </div>
+                                                        ) : null;
+                                                    })()}
                                                     <div className="text-xs text-slate-400">
                                                         {formatLastSeen(d.latest_telemetry?.occurred_at)}
                                                     </div>

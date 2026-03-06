@@ -8,6 +8,7 @@ import { AlertsTable, type ApiAlert, formatDateTime } from "../pages/Alerts";
 import { AlertTimelineDrawer } from "./AlertTimelineDrawer";
 import ResolveAlertModal from "./ResolveAlertModal";
 import { formatTemperature } from "../lib/format";
+import { getDevicePreferences, saveDevicePreferences, type CardDisplayPreferences } from "../lib/displayLayout";
 
 type Device = {
     id: string;
@@ -20,7 +21,87 @@ type Device = {
     latest_telemetry: { occurred_at: string } | null;
     metrics: { temperature?: number | null; humidity?: number | null; battery_percent?: number | null };
     available_metrics?: string[];
+    device_category?: string;
 };
+
+function CardDisplayConfig({ device }: { device: Device | null }) {
+    const [prefs, setPrefs] = useState<CardDisplayPreferences | null>(null);
+
+    useEffect(() => {
+        if (device) {
+            setPrefs(getDevicePreferences(device.id));
+        }
+    }, [device]);
+
+    if (!device || device.device_category !== 'environmental' || !prefs) return null;
+
+    const validMetrics = (device.available_metrics || []).filter(m => m !== 'battery');
+    if (validMetrics.length === 0) return null;
+
+    const toggleMetric = (metric: string) => {
+        const current = prefs.pinned_metrics || [];
+        let updated: string[];
+
+        if (current.includes(metric)) {
+            updated = current.filter(m => m !== metric);
+        } else {
+            if (current.length >= 2) return; // Max 2 metrics allowed
+            updated = [...current, metric];
+        }
+
+        const newPrefs = { ...prefs, pinned_metrics: updated };
+        setPrefs(newPrefs);
+        saveDevicePreferences(device.id, newPrefs);
+    };
+
+    const toggleBattery = () => {
+        const newPrefs = { ...prefs, show_battery_on_card: !prefs.show_battery_on_card };
+        setPrefs(newPrefs);
+        saveDevicePreferences(device.id, newPrefs);
+    };
+
+    return (
+        <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-white/5">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1">Card Display</h3>
+            <p className="text-xs text-slate-500 mb-4">Choose up to 2 metrics to pin to the device card on the dashboard.</p>
+
+            <div className="space-y-3">
+                <div className="space-y-2">
+                    {validMetrics.map(metric => {
+                        const isPinned = (prefs.pinned_metrics || []).includes(metric);
+                        const isDisabled = !isPinned && (prefs.pinned_metrics || []).length >= 2;
+                        return (
+                            <label key={metric} className={`flex items-center gap-2 text-sm ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                                <input
+                                    type="checkbox"
+                                    checked={isPinned}
+                                    onChange={() => toggleMetric(metric)}
+                                    disabled={isDisabled}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                                />
+                                <span className="text-slate-700 dark:text-slate-300 capitalize">{metric.replace(/_/g, ' ')}</span>
+                            </label>
+                        );
+                    })}
+                </div>
+
+                {device.metrics?.battery_percent !== undefined && (
+                    <div className="pt-3 mt-3 border-t border-slate-200 dark:border-white/10">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={prefs.show_battery_on_card}
+                                onChange={toggleBattery}
+                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="text-slate-700 dark:text-slate-300">Show battery indicator</span>
+                        </label>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 
 function LocationAssignment({ device, onAssign }: { device: Device | null, onAssign: () => void }) {
     const [sites, setSites] = useState<Site[]>([]);
@@ -298,6 +379,9 @@ export default function DeviceDetails() {
                 {/* Sidebar / Extra Info */}
                 <div className="space-y-6">
                     <LocationAssignment device={device} onAssign={() => window.location.reload()} />
+
+                    {/* Card Display Config */}
+                    <CardDisplayConfig device={device} />
 
                     {/* Alert Rules Section */}
                     <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-white/5">
